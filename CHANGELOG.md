@@ -8,6 +8,36 @@
 
 ## [待发布] 功能增强版本
 
+### Commit 5: PersistReader mmap 内存映射优化
+
+**日期**: 2026-04-11
+
+**变更内容**:
+- 新增 `PersistReader` 类，实现跨平台 mmap 内存映射
+- Windows 实现：CreateFileMapping + MapViewOfFile
+- Linux 实现：mmap + munmap
+- 将 CardInfo 结构公开给 PersistReader（友元类）
+- BlacklistService 集成 PersistReader，查询直接通过 mmap 执行
+- 修复 persist_reader.cpp 中类型名限定符问题
+- 修复 isValid() 方法资源泄漏（文件未关闭）
+- 后台加载完成后重新打开 mmap
+
+**新增文件**:
+- `include/persist_reader.h` - PersistReader 类声明
+- `src/core/persist_reader.cpp` - PersistReader 类实现
+
+**修改文件**:
+- `include/blacklist_checker.h` - 添加 PersistReader 友元声明，公开 CardInfo
+- `include/blacklist_service.h` - 添加 persistReader_ 成员
+- `src/core/blacklist_service.cpp` - 集成 mmap 查询逻辑
+
+**技术细节**:
+- mmap 查询：零拷贝直接访问持久化文件内存
+- 启动速度：从持久化恢复 < 10 秒
+- 查询路径：PersistReader::query() → 二分查找 mmap 内存
+
+---
+
 ### Commit 1: 持久化功能基础
 
 **日期**: 2026-04-11
