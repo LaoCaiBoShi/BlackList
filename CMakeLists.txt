@@ -83,3 +83,34 @@ if(WIN32)
 endif()
 
 install(TARGETS blacklist_checker DESTINATION bin)
+
+add_executable(blacklist_test
+    tests/test_main.cpp
+    tests/test_blacklist.cpp
+    src/core/blacklist_checker.cpp
+    src/core/persist_reader.cpp
+    src/core/memory_pool.cpp
+    src/core/thread_pool.cpp
+    src/zip/zip_basic.cpp
+    src/zip/zip_utils.cpp
+    src/zip/ZipExtractor.cpp
+    include/simdjson/simdjson.cpp
+    ${ZLIB_SOURCES}
+    ${MINIZIP_SOURCES}
+)
+
+target_link_libraries(blacklist_test PRIVATE
+    D:/Coder/socket/coost-master/build/src/libco.a
+)
+
+target_include_directories(blacklist_test PRIVATE
+    include
+    src
+    src/core
+    src/zip
+    src/zlib
+    src/minizip
+    tests
+    coost-master/include
+    include/simdjson
+)
