@@ -48,6 +48,7 @@ add_executable(blacklist_checker
     src/main.cpp
     src/core/blacklist_checker.cpp
     src/core/blacklist_service.cpp
+    src/core/persist_reader.cpp
     src/core/memory_pool.cpp
     src/core/thread_pool.cpp
     src/net/tcp_server.cpp

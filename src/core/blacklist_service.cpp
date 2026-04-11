@@ -11,6 +11,7 @@
 BlacklistService::BlacklistService()
     : status_(Status::UNINITIALIZED) {
     checker_ = std::make_unique<BlacklistChecker>();
+    persistReader_ = std::make_unique<PersistReader>();
 }
 
 BlacklistService::~BlacklistService() {
@@ -23,21 +24,23 @@ bool BlacklistService::initialize(const std::string& zipPath, const std::string&
     std::lock_guard<std::mutex> lock(pathMutex_);
     currentZipPath_ = zipPath;
 
-    // 尝试从持久化文件快速恢复
-    if (checker_->isPersistFileValid(persistPath)) {
-        std::cout << "[BlacklistService] Found valid persist file, restoring..." << std::endl;
-        if (checker_->loadFromPersistFile(persistPath)) {
-            std::cout << "[BlacklistService] Restored " << checker_->size()
-                      << " records from persist file" << std::endl;
+    // 尝试使用 mmap 方式打开持久化文件
+    if (PersistReader::isValid(persistPath)) {
+        std::cout << "[BlacklistService] Found valid persist file, opening with mmap..." << std::endl;
+        if (persistReader_->open(persistPath)) {
+            std::cout << "[BlacklistService] mmap opened persist file: "
+                      << persistReader_->getTotalCards() << " records, "
+                      << persistReader_->getPrefixCount() << " provinces"
+                      << std::endl;
 
-            // 立即进入就绪状态
+            // 立即进入就绪状态，查询直接通过 mmap 执行
             {
                 std::lock_guard<std::mutex> statusLock(statusMutex_);
                 status_ = Status::READY;
             }
             statusCV_.notify_all();
 
-            // 启动后台线程加载最新数据
+            // 启动后台线程加载最新ZIP数据以支持热更新
             std::cout << "[BlacklistService] Starting background loading for fresh data..." << std::endl;
             {
                 std::lock_guard<std::mutex> statusLock(statusMutex_);
@@ -48,10 +51,13 @@ bool BlacklistService::initialize(const std::string& zipPath, const std::string&
                 &BlacklistService::backgroundLoadingThread, this, zipPath);
 
             return true;
+        } else {
+            std::cerr << "[BlacklistService] Failed to mmap persist file: "
+                      << persistReader_->getLastError() << std::endl;
         }
     }
 
-    // 没有持久化文件或恢复失败，同步加载
+    // mmap 失败或文件无效，同步加载
     std::cout << "[BlacklistService] No valid persist file, loading from ZIP synchronously..." << std::endl;
     {
         std::lock_guard<std::mutex> statusLock(statusMutex_);
@@ -69,6 +75,12 @@ bool BlacklistService::initialize(const std::string& zipPath, const std::string&
         // 保存持久化文件以便下次快速恢复
         std::cout << "[BlacklistService] Saving persist file for future fast recovery..." << std::endl;
         checker_->savePersistAfterLoad(persistPath);
+
+        // 尝试使用 mmap 打开新保存的持久化文件
+        persistReader_->close();
+        if (PersistReader::isValid(persistPath)) {
+            persistReader_->open(persistPath);
+        }
 
         {
             std::lock_guard<std::mutex> statusLock(statusMutex_);
@@ -88,6 +100,12 @@ bool BlacklistService::initialize(const std::string& zipPath, const std::string&
 }
 
 bool BlacklistService::isBlacklisted(const std::string& cardId) {
+    // 如果 PersistReader 已打开且有效，直接使用 mmap 查询
+    if (persistReader_ && persistReader_->isOpen()) {
+        // mmap 直接查询，返回是否可能在黑名单中
+        return persistReader_->query(cardId);
+    }
+    // 否则使用 BlacklistChecker
     return checker_->isBlacklisted(cardId);
 }
 
@@ -247,8 +265,17 @@ void BlacklistService::backgroundLoadingThread(const std::string& zipPath) {
         }
 
         // 保存新的持久化文件
+        std::string persistPath = "blacklist.dat";
         std::cout << "[BlacklistService] Saving new persist file..." << std::endl;
-        checker_->savePersistAfterLoad("blacklist.dat");
+        checker_->savePersistAfterLoad(persistPath);
+
+        // 使用 mmap 打开新保存的持久化文件
+        persistReader_->close();
+        if (PersistReader::isValid(persistPath)) {
+            if (persistReader_->open(persistPath)) {
+                std::cout << "[BlacklistService] mmap opened new persist file" << std::endl;
+            }
+        }
 
         {
             std::lock_guard<std::mutex> statusLock(statusMutex_);

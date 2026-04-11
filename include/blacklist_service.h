@@ -13,6 +13,7 @@
 #define BLACKLIST_SERVICE_H
 
 #include "blacklist_checker.h"
+#include "persist_reader.h"
 #include <string>
 #include <atomic>
 #include <thread>
@@ -152,6 +153,9 @@ private:
 
     // 核心黑名单检查器（使用指针避免mutex复制问题）
     std::unique_ptr<BlacklistChecker> checker_;
+
+    // mmap 持久化读取器（用于快速查询）
+    std::unique_ptr<PersistReader> persistReader_;
 
     // 当前状态
     std::atomic<Status> status_;
