@@ -443,12 +443,12 @@ bool PersistReader::query(const std::string& cardId) const {
     }
 
     unsigned short cardType = 0;
-    for (int i = 10; i < 12; ++i) {
+    for (int i = 8; i < 10; ++i) {
         cardType = cardType * 10 + (cardId[i] - '0');
     }
 
-    // 构建 CardInfo
-    BlacklistChecker::CardInfo targetInfo(year, week, cardId.substr(12));
+    // 构建 CardInfo (innerId: 11-20位 -> 0-indexed: 10-19)
+    BlacklistChecker::CardInfo targetInfo(year, week, cardId.substr(10, 10));
 
     // 查找省份
     const BlacklistChecker::PersistIndexEntry* entry = findPrefixEntry(prefix);
