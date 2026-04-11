@@ -34,23 +34,25 @@ bool BlacklistService::initialize(const std::string& zipPath, const std::string&
                       << persistReader_->getPrefixCount() << " provinces"
                       << std::endl;
 
-            // 立即进入就绪状态，查询直接通过 mmap 执行
-            {
-                std::lock_guard<std::mutex> statusLock(statusMutex_);
-                status_ = Status::READY;
+            // 如果有 ZIP 路径，启动后台线程加载最新数据以支持热更新
+            if (!zipPath.empty()) {
+                std::cout << "[BlacklistService] Starting background loading for fresh data..." << std::endl;
+                {
+                    std::lock_guard<std::mutex> statusLock(statusMutex_);
+                    status_ = Status::UPDATING;
+                }
+
+                updateThread_ = std::make_unique<std::thread>(
+                    &BlacklistService::backgroundLoadingThread, this, zipPath);
+            } else {
+                // 没有 ZIP 路径，保持就绪状态
+                std::cout << "[BlacklistService] No ZIP file provided, serving from persist only" << std::endl;
+                {
+                    std::lock_guard<std::mutex> statusLock(statusMutex_);
+                    status_ = Status::READY;
+                }
             }
             statusCV_.notify_all();
-
-            // 启动后台线程加载最新ZIP数据以支持热更新
-            std::cout << "[BlacklistService] Starting background loading for fresh data..." << std::endl;
-            {
-                std::lock_guard<std::mutex> statusLock(statusMutex_);
-                status_ = Status::UPDATING;
-            }
-
-            updateThread_ = std::make_unique<std::thread>(
-                &BlacklistService::backgroundLoadingThread, this, zipPath);
-
             return true;
         } else {
             std::cerr << "[BlacklistService] Failed to mmap persist file: "
@@ -75,10 +77,11 @@ bool BlacklistService::initialize(const std::string& zipPath, const std::string&
 
         // 保存持久化文件以便下次快速恢复
         std::cout << "[BlacklistService] Saving persist file for future fast recovery..." << std::endl;
+        // 先关闭 mmap，避免文件被锁无法写入
+        persistReader_->close();
         checker_->savePersistAfterLoad(persistPath_);
 
         // 尝试使用 mmap 打开新保存的持久化文件
-        persistReader_->close();
         if (PersistReader::isValid(persistPath_)) {
             persistReader_->open(persistPath_);
         }
@@ -268,10 +271,12 @@ void BlacklistService::backgroundLoadingThread(const std::string& zipPath) {
         // 保存新的持久化文件
         {
             std::lock_guard<std::mutex> lock(pathMutex_);
+            // 先关闭 mmap，避免文件被锁无法写入
+            persistReader_->close();
+
             checker_->savePersistAfterLoad(persistPath_);
 
-            // 使用 mmap 打开新保存的持久化文件
-            persistReader_->close();
+            // 重新使用 mmap 打开新保存的持久化文件
             if (PersistReader::isValid(persistPath_)) {
                 if (persistReader_->open(persistPath_)) {
                     std::cout << "[BlacklistService] mmap opened new persist file" << std::endl;
