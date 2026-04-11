@@ -174,6 +174,9 @@ private:
     // ZIP路径和数据交换锁
     std::string currentZipPath_;
     std::mutex pathMutex_;
+
+    // 持久化文件路径
+    std::string persistPath_;
 };
 
 #endif // BLACKLIST_SERVICE_H

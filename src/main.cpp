@@ -112,9 +112,24 @@ void queryCardLoop(BlacklistService& service) {
 int main(int argc, char* argv[]) {
     BlacklistService service;
     int tcpPort = 8888;  // 默认TCP端口
-    std::string persistPath = "blacklist.dat";  // 持久化文件路径
     TcpQueryServer* tcpServer = nullptr;  // TCP查询服务器指针
     std::string zipPath;  // ZIP文件路径（可能为空）
+
+    // 获取可执行文件所在目录，用于持久化文件路径
+    std::string exeDir;
+    if (argc > 0 && argv[0]) {
+        std::string exePath = argv[0];
+        size_t lastSlash = exePath.find_last_of("\\/");
+        if (lastSlash != std::string::npos) {
+            exeDir = exePath.substr(0, lastSlash);
+        } else {
+            exeDir = ".";
+        }
+    } else {
+        exeDir = ".";
+    }
+    // 默认持久化文件路径：可执行文件同目录
+    std::string persistPath = exeDir + "/blacklist.dat";
 
     // 检查命令行参数
     bool hasZipPath = false;
@@ -125,7 +140,7 @@ int main(int argc, char* argv[]) {
             tcpPort = atoi(argv[2]);
         }
         if (argc > 3) {
-            persistPath = argv[3];
+            persistPath = argv[3];  // 用户指定路径优先
         }
     }
 
