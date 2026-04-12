@@ -205,6 +205,11 @@ std::string BlacklistService::getVersionInfo() const {
 }
 
 size_t BlacklistService::getBlacklistSize() const {
+    // 如果 persistReader 已打开且有效，返回 mmap 中的卡片数
+    if (persistReader_ && persistReader_->isOpen()) {
+        return persistReader_->getTotalCards();
+    }
+    // 否则返回 checker 中的卡片数
     return checker_->size();
 }
 

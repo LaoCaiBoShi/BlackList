@@ -11,8 +11,8 @@
     #undef max
 #endif
 
-// Include zlib headers
-#include "zlib/zlib.h"
+// minizip 头文件
+#include "minizip/unzip.h"
 
 class ZipExtractor
 {
@@ -33,6 +33,7 @@ public:
     };
 
     using ProgressCallback = std::function<void(const std::string&, int, int)>;
+    using FileExtractedCallback = std::function<void(const std::string&)>;
 
     ZipExtractor();
     ~ZipExtractor();
@@ -40,6 +41,7 @@ public:
     ZipResult open(const std::string& zipPath);
     ZipResult extractAll(const std::string& destDir, ProgressCallback callback = nullptr);
     ZipResult extractAllWithCallback(const std::string& destDir, std::function<void(const std::string&)> fileCallback, ProgressCallback progressCallback = nullptr);
+    ZipResult extractAllWithRealTimeCallback(const std::string& destDir, FileExtractedCallback fileCallback, ProgressCallback progressCallback = nullptr);
     ZipResult extractFile(const std::string& fileName, const std::string& destPath);
     void close();
 
@@ -49,10 +51,8 @@ public:
 
 private:
     ZipResult createDirectoryRecursive(const std::string& path);
-    std::string normalizePath(const std::string& path);
-    std::string getParentPath(const std::string& path);
-    std::string getErrorString(ZipResult result);
 
+    unzFile m_zipFile;  // minizip 文件句柄
     std::string m_zipPath;
     std::string m_lastError;
     int m_fileCount;

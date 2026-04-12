@@ -114,6 +114,10 @@ int main(int argc, char* argv[]) {
         return testPersistLoad(persistPath);
     });
 
+    runTest("Persist Only Mode (mmap)", [&]() {
+        return testPersistOnlyMode(persistPath);
+    });
+
     runTest("Query BLACKLISTED Card", [&]() {
         return testQueryBlacklisted();
     });
@@ -122,8 +126,28 @@ int main(int argc, char* argv[]) {
         return testQueryNotBlacklisted();
     });
 
+    runTest("Multiple BLACKLISTED Cards", [&]() {
+        return testMultipleBlacklistedCards();
+    });
+
+    runTest("Card Field Extraction", [&]() {
+        return testCardFieldExtraction();
+    });
+
     runTest("Data Consistency", [&]() {
         return testDataConsistency();
+    });
+
+    runTest("Restart Recovery", [&]() {
+        return testRestartRecovery(persistPath);
+    });
+
+    runTest("PersistReader Query", [&]() {
+        return testPersistReaderQuery(persistPath);
+    });
+
+    runTest("InnerId Encoding", [&]() {
+        return testInnerIdEncoding();
     });
 
     printSummary();

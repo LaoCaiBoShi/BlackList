@@ -54,7 +54,7 @@ public:
         // 获取innerId字符串
         std::string getInnerIdStr() const {
             std::string result;
-            for (int i = 9; i >= 0; i--) {
+            for (int i = 0; i < 10; ++i) {
                 int digit = (innerId >> (i * 4)) & 0x0F;
                 result += (digit + '0');
             }

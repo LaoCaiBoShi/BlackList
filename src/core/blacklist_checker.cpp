@@ -258,9 +258,7 @@ bool BlacklistChecker::isBlacklisted(const std::string& cardId) {
     if (cardId.length() != 20) return false;
 
     // 先检查布隆过滤器
-    bool bloomResult = bloomFilter.contains(cardId);
-
-    if (!bloomResult) {
+    if (!bloomFilter.contains(cardId)) {
         return false;
     }
 
@@ -270,6 +268,7 @@ bool BlacklistChecker::isBlacklisted(const std::string& cardId) {
     unsigned short year = getYear(cardId);
     unsigned short week = getWeek(cardId);
     std::string innerId = getInnerId(cardId);
+    size_t typeIdx = getTypeIndex(type);
 
     CardInfo cardInfo(year, week, innerId);
 
@@ -278,7 +277,7 @@ bool BlacklistChecker::isBlacklisted(const std::string& cardId) {
 
     auto prefixIt = cardMap.find(prefix);
     if (prefixIt != cardMap.end()) {
-        const auto& cards = prefixIt->second[getTypeIndex(type)];
+        const auto& cards = prefixIt->second[typeIdx];
         return std::binary_search(cards.begin(), cards.end(), cardInfo);
     }
 
@@ -751,9 +750,49 @@ bool BlacklistChecker::saveToPersistFile(const std::string& filename) {
         // 计算数据偏移量
         const size_t headerSize = sizeof(PersistHeader);
         const size_t indexEntrySize = sizeof(PersistIndexEntry);
-        size_t prefixCount = cardMap.size();
+
+        // 第一遍：计算每个省份的数据偏移（只保存有数据的前缀）
+        std::vector<std::pair<uint16_t, std::array<uint64_t, 3>>> prefixOffsets;
+        std::vector<std::pair<uint16_t, std::array<uint32_t, 3>>> prefixCounts;
+        size_t currentOffset = headerSize;  // 数据从 header 后开始
+
+        for (const auto& prefixEntry : cardMap) {
+            uint16_t prefix = prefixEntry.first;
+            std::array<uint32_t, 3> counts = {
+                static_cast<uint32_t>(prefixEntry.second[0].size()),
+                static_cast<uint32_t>(prefixEntry.second[1].size()),
+                static_cast<uint32_t>(prefixEntry.second[2].size())
+            };
+            // 跳过没有任何数据的前缀
+            if (counts[0] == 0 && counts[1] == 0 && counts[2] == 0) {
+                continue;
+            }
+            std::array<uint64_t, 3> offsets = {0, 0, 0};
+            offsets[0] = currentOffset;
+            currentOffset += static_cast<uint64_t>(counts[0]) * sizeof(CardInfo);
+            offsets[1] = currentOffset;
+            currentOffset += static_cast<uint64_t>(counts[1]) * sizeof(CardInfo);
+            offsets[2] = currentOffset;
+            currentOffset += static_cast<uint64_t>(counts[2]) * sizeof(CardInfo);
+            prefixOffsets.push_back({prefix, offsets});
+            prefixCounts.push_back({prefix, counts});
+        }
+
+        size_t prefixCount = prefixOffsets.size();
         size_t indexTableSize = prefixCount * indexEntrySize;
-        size_t dataOffset = headerSize + indexTableSize;
+        size_t dataStartOffset = headerSize + indexTableSize;
+
+        // 重新计算偏移量：数据从 header + indexTable 后开始
+        currentOffset = dataStartOffset;
+        for (size_t i = 0; i < prefixOffsets.size(); ++i) {
+            auto& offsets = prefixOffsets[i].second;
+            offsets[0] = currentOffset;
+            currentOffset += static_cast<uint64_t>(prefixCounts[i].second[0]) * sizeof(CardInfo);
+            offsets[1] = currentOffset;
+            currentOffset += static_cast<uint64_t>(prefixCounts[i].second[1]) * sizeof(CardInfo);
+            offsets[2] = currentOffset;
+            currentOffset += static_cast<uint64_t>(prefixCounts[i].second[2]) * sizeof(CardInfo);
+        }
 
         // 写入 Header
         PersistHeader header;
@@ -766,25 +805,6 @@ bool BlacklistChecker::saveToPersistFile(const std::string& filename) {
         header.createdTime = static_cast<uint64_t>(std::time(nullptr));
         std::memcpy(header.versionInfo, versionInfo.data(), 6);
         file.write(reinterpret_cast<const char*>(&header), sizeof(header));
-
-        // 第一遍：计算每个省份的数据偏移
-        std::vector<std::pair<uint16_t, std::array<uint64_t, 3>>> prefixOffsets;
-        std::vector<std::pair<uint16_t, std::array<uint32_t, 3>>> prefixCounts;
-        size_t currentOffset = dataOffset;
-
-        for (const auto& prefixEntry : cardMap) {
-            uint16_t prefix = prefixEntry.first;
-            std::array<uint64_t, 3> offsets = {0, 0, 0};
-            std::array<uint32_t, 3> counts = {0, 0, 0};
-
-            for (size_t typeIdx = 0; typeIdx < 3; ++typeIdx) {
-                counts[typeIdx] = static_cast<uint32_t>(prefixEntry.second[typeIdx].size());
-                offsets[typeIdx] = currentOffset;
-                currentOffset += static_cast<uint64_t>(counts[typeIdx]) * sizeof(CardInfo);
-            }
-            prefixOffsets.push_back({prefix, offsets});
-            prefixCounts.push_back({prefix, counts});
-        }
 
         // 写入 Index Table
         for (size_t i = 0; i < prefixOffsets.size(); ++i) {
@@ -800,10 +820,12 @@ bool BlacklistChecker::saveToPersistFile(const std::string& filename) {
             file.write(reinterpret_cast<const char*>(&entry), sizeof(entry));
         }
 
-        // 写入 Binary Card Data
-        for (const auto& prefixEntry : cardMap) {
+        // 写入 Binary Card Data（按照索引表的顺序）
+        for (size_t i = 0; i < prefixOffsets.size(); ++i) {
+            uint16_t prefix = prefixOffsets[i].first;
+            const auto& typeArrays = cardMap.at(prefix);
             for (size_t typeIdx = 0; typeIdx < 3; ++typeIdx) {
-                const auto& cards = prefixEntry.second[typeIdx];
+                const auto& cards = typeArrays[typeIdx];
                 if (!cards.empty()) {
                     file.write(reinterpret_cast<const char*>(cards.data()),
                               cards.size() * sizeof(CardInfo));
@@ -827,32 +849,30 @@ bool BlacklistChecker::saveToPersistFile(const std::string& filename) {
  * @return 加载是否成功
  */
 bool BlacklistChecker::loadFromPersistFile(const std::string& filename) {
-    try {
-        // 打开文件
+    std::vector<PersistIndexEntry> indexTable;
+    uint32_t prefixCount = 0;
+    PersistHeader header;
+
+    {
+        // 读取文件头和索引表（不需要锁）
         std::ifstream file(filename, std::ios::binary | std::ios::ate);
         if (!file.is_open()) {
             std::cerr << "Failed to open persist file: " << filename << std::endl;
             return false;
         }
 
-        // 获取文件大小
-        std::streamsize fileSize = file.tellg();
         file.seekg(0, std::ios::beg);
 
-        // 读取 Header
-        PersistHeader header;
         if (!file.read(reinterpret_cast<char*>(&header), sizeof(header))) {
             std::cerr << "Failed to read persist header" << std::endl;
             return false;
         }
 
-        // 验证魔数
         if (std::memcmp(header.magic, "BLCK", 4) != 0) {
             std::cerr << "Invalid persist file magic" << std::endl;
             return false;
         }
 
-        // 验证版本
         if (header.version != PERSIST_FORMAT_VERSION) {
             std::cerr << "Persist file version mismatch: " << header.version
                       << " vs " << PERSIST_FORMAT_VERSION << std::endl;
@@ -862,9 +882,9 @@ bool BlacklistChecker::loadFromPersistFile(const std::string& filename) {
         std::cout << "Loading persist file: " << header.totalCards
                   << " cards, " << header.prefixCount << " prefixes" << std::endl;
 
-        // 读取 Index Table
-        std::vector<PersistIndexEntry> indexTable(header.prefixCount);
-        for (uint32_t i = 0; i < header.prefixCount; ++i) {
+        prefixCount = header.prefixCount;
+        indexTable.resize(prefixCount);
+        for (uint32_t i = 0; i < prefixCount; ++i) {
             if (!file.read(reinterpret_cast<char*>(&indexTable[i]), sizeof(PersistIndexEntry))) {
                 std::cerr << "Failed to read index entry " << i << std::endl;
                 return false;
@@ -872,84 +892,83 @@ bool BlacklistChecker::loadFromPersistFile(const std::string& filename) {
         }
 
         // 清空现有数据
-        {
-            std::lock_guard<std::mutex> lock(cardMapMutex);
-            cardMap.clear();
-            bloomFilter.clear();
-            std::memcpy(versionInfo.data(), header.versionInfo, 6);
+        std::lock_guard<std::mutex> lock(cardMapMutex);
+        cardMap.clear();
+        bloomFilter.clear();
+        std::memcpy(versionInfo.data(), header.versionInfo, 6);
+    }
+
+    // 加载数据到 cardMap（使用单个文件句柄避免问题）
+    std::vector<std::pair<uint16_t, std::array<std::vector<CardInfo>, 3>>> loadedData;
+    std::ifstream file(filename, std::ios::binary | std::ios::in);
+    if (!file.is_open()) {
+        std::cerr << "Failed to reopen persist file for loading" << std::endl;
+        return false;
+    }
+
+    for (const auto& entry : indexTable) {
+        uint16_t prefix = entry.prefix;
+        std::array<std::vector<CardInfo>, 3> typeArrays;
+
+        if (entry.type0Count > 0) {
+            typeArrays[0].resize(entry.type0Count);
+            file.seekg(static_cast<std::streamoff>(entry.type0Offset));
+            file.read(reinterpret_cast<char*>(typeArrays[0].data()),
+                     entry.type0Count * sizeof(CardInfo));
+        }
+        if (entry.type1Count > 0) {
+            typeArrays[1].resize(entry.type1Count);
+            file.seekg(static_cast<std::streamoff>(entry.type1Offset));
+            file.read(reinterpret_cast<char*>(typeArrays[1].data()),
+                     entry.type1Count * sizeof(CardInfo));
+        }
+        if (entry.type2Count > 0) {
+            typeArrays[2].resize(entry.type2Count);
+            file.seekg(static_cast<std::streamoff>(entry.type2Offset));
+            file.read(reinterpret_cast<char*>(typeArrays[2].data()),
+                     entry.type2Count * sizeof(CardInfo));
         }
 
-        // 加载数据
-        for (const auto& entry : indexTable) {
-            uint16_t prefix = entry.prefix;
+        loadedData.emplace_back(prefix, std::move(typeArrays));
+    }
+    file.close();
 
-            // 加载 type 0 (cardType 22)
-            if (entry.type0Count > 0) {
-                std::vector<CardInfo> cards;
-                cards.resize(entry.type0Count);
-                file.seekg(static_cast<std::streamoff>(entry.type0Offset));
-                file.read(reinterpret_cast<char*>(cards.data()),
-                         entry.type0Count * sizeof(CardInfo));
-
-                std::lock_guard<std::mutex> lock(cardMapMutex);
-                cardMap[prefix][0] = std::move(cards);
-            }
-
-            // 加载 type 1 (cardType 23)
-            if (entry.type1Count > 0) {
-                std::vector<CardInfo> cards;
-                cards.resize(entry.type1Count);
-                file.seekg(static_cast<std::streamoff>(entry.type1Offset));
-                file.read(reinterpret_cast<char*>(cards.data()),
-                         entry.type1Count * sizeof(CardInfo));
-
-                std::lock_guard<std::mutex> lock(cardMapMutex);
-                cardMap[prefix][1] = std::move(cards);
-            }
-
-            // 加载 type 2 (其他)
-            if (entry.type2Count > 0) {
-                std::vector<CardInfo> cards;
-                cards.resize(entry.type2Count);
-                file.seekg(static_cast<std::streamoff>(entry.type2Offset));
-                file.read(reinterpret_cast<char*>(cards.data()),
-                         entry.type2Count * sizeof(CardInfo));
-
-                std::lock_guard<std::mutex> lock(cardMapMutex);
-                cardMap[prefix][2] = std::move(cards);
-            }
+    // 写入 cardMap
+    {
+        std::lock_guard<std::mutex> lock(cardMapMutex);
+        for (auto& [prefix, typeArrays] : loadedData) {
+            cardMap[prefix] = std::move(typeArrays);
         }
+    }
 
-        // 重建布隆过滤器
-        {
-            std::lock_guard<std::mutex> lock(cardMapMutex);
-            for (const auto& prefixEntry : cardMap) {
-                for (size_t typeIdx = 0; typeIdx < 3; ++typeIdx) {
-                    for (const auto& card : prefixEntry.second[typeIdx]) {
-                        // 构建完整卡号用于布隆过滤器
-                        std::string fullCardId = std::to_string(prefixEntry.first);
-                        std::string yearStr = std::to_string(card.getYear());
-                        if (yearStr.length() < 2) yearStr = "0" + yearStr;
-                        fullCardId += yearStr;
-                        std::string weekStr = std::to_string(card.getWeek());
-                        if (weekStr.length() < 2) weekStr = "0" + weekStr;
-                        fullCardId += weekStr;
-                        unsigned short cardType = (typeIdx == 0) ? 22 : (typeIdx == 1) ? 23 : 0;
-                        fullCardId += std::to_string(cardType);
-                        if (fullCardId.length() < 10) fullCardId = std::string(10 - fullCardId.length(), '0') + fullCardId;
-                        fullCardId += card.getInnerIdStr();
-                        bloomFilter.add(fullCardId);
-                    }
+    // 对所有数据进行排序，确保二分查找正常工作
+    sortAll();
+
+    // 重建布隆过滤器
+    {
+        std::lock_guard<std::mutex> lock(cardMapMutex);
+        for (const auto& prefixEntry : cardMap) {
+            for (size_t typeIdx = 0; typeIdx < 3; ++typeIdx) {
+                for (const auto& card : prefixEntry.second[typeIdx]) {
+                    std::string fullCardId = std::to_string(prefixEntry.first);
+                    std::string yearStr = std::to_string(card.getYear());
+                    if (yearStr.length() < 2) yearStr = "0" + yearStr;
+                    fullCardId += yearStr;
+                    std::string weekStr = std::to_string(card.getWeek());
+                    if (weekStr.length() < 2) weekStr = "0" + weekStr;
+                    fullCardId += weekStr;
+                    unsigned short cardType = (typeIdx == 0) ? 22 : (typeIdx == 1) ? 23 : 0;
+                    fullCardId += std::to_string(cardType);
+                    if (fullCardId.length() < 10) fullCardId = std::string(10 - fullCardId.length(), '0') + fullCardId;
+                    fullCardId += card.getInnerIdStr();
+                    bloomFilter.add(fullCardId);
                 }
             }
         }
-
-        std::cout << "Persist file loaded: " << size() << " cards" << std::endl;
-        return true;
-    } catch (const std::exception& e) {
-        std::cerr << "Error loading persist file: " << e.what() << std::endl;
-        return false;
     }
+
+    std::cout << "Persist file loaded: " << size() << " cards" << std::endl;
+    return true;
 }
 
 /**
