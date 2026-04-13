@@ -91,7 +91,7 @@ public:
         std::unique_ptr<std::vector<bool>> bits; // 使用vector<bool>代替bitset，支持动态大小
         mutable std::mutex m_mutex; // 互斥锁，保护bits的并发访问
         size_t m_elementCount; // 元素数量计数器
-        
+
         // 哈希函数
         inline size_t hash(const std::string& key, size_t seed) {
             size_t hash = seed;
@@ -100,7 +100,7 @@ public:
             }
             return hash % m_bits;
         }
-    
+
     public:
         /**
          * @brief 构造布隆过滤器
@@ -187,12 +187,34 @@ public:
             return m_elementCount;
         }
     };
-    
-    // 存储结构：1-4位分片 -> 卡片类型(22/23/其他) -> 有序CardInfo数组
-    // 使用 array[3] 替代 unordered_map<cardType>，减少内存开销
-    // [0] = cardType 22, [1] = cardType 23, [2] = 其他异常类型
-    std::unordered_map<unsigned short, std::array<std::vector<CardInfo>, 3>> cardMap;
-    mutable std::mutex cardMapMutex; // 互斥锁，保护cardMap的并发访问
+
+    // 省份代码最大值（省级行政区划代码最大约65）
+    static constexpr size_t MAX_PROVINCE_CODE = 100;
+
+    // 省份分片数据结构
+    // 利用卡号前2位=省份代码的天然映射，实现O(1)分片定位
+    struct ProvinceShard {
+        std::array<std::vector<CardInfo>, 3> cards;
+        mutable std::mutex mutex;
+
+        ProvinceShard() = default;
+    };
+
+    // 省份分片数组 - 按省份代码直接索引
+    // 省份代码 11 -> shards[11] (北京)
+    // 查询时：卡号前2位 -> 直接定位分片
+    std::array<ProvinceShard, MAX_PROVINCE_CODE> provinceShards;
+
+    // 根据省份代码获取分片索引
+    inline size_t getShardIndex(unsigned short provinceCode) const {
+        return provinceCode < MAX_PROVINCE_CODE ? provinceCode : 0;
+    }
+
+    // 根据卡号前2位获取省份代码
+    inline unsigned short getProvinceCode(const std::string& cardId) const {
+        if (cardId.length() < 2) return 0;
+        return std::stoi(cardId.substr(0, 2));
+    }
 
     // 布隆过滤器，用于快速判断卡片是否可能在黑名单中
     BloomFilter bloomFilter;
@@ -205,6 +227,12 @@ public:
 
     // 提取卡片类型（9-10位）
     unsigned short getCardType(const std::string& cardId);
+    
+    // 为指定省份预分配容量
+    void reserveProvinceCapacity(int provinceCode, size_t capacity);
+    
+    // 对指定省份的卡片进行排序
+    void sortProvince(int provinceCode);
 
     // 获取卡片类型在数组中的索引
     // cardType 22 -> 0, cardType 23 -> 1, 其他 -> 2

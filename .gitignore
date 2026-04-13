@@ -1,2 +1,49 @@
-*
-!src/
+# ========== 项目特定 ==========
+CHANGE_RECORD.md
+
+# ========== 构建产物 ==========
+build/
+cmake-build-*/
+*.exe
+*.dll
+*.a
+*.lib
+*.o
+*.obj
+*.pch
+*.gch
+*.sln
+*.vcxproj
+*.vcxproj.filters
+*.vcxproj.user
+
+# ========== IDE ==========
+.vs/
+.vscode/launch.json
+.vscode/tasks.json
+.idea/
+cmake-build-*/
+
+# ========== 临时文件 ==========
+*.swp
+*.swo
+*~
+.DS_Store
+Thumbs.db
+*.log
+*.tmp
+*.temp
+
+# ========== 第三方依赖（建议用包管理器） ==========
+coost-master/
+rapidjson/
+zlib-1.3.1/
+lib/
+include/co/
+include/rapidjson/
+
+# ========== 其他 ==========
+logs/
+scripts/
+docs/
+备份/

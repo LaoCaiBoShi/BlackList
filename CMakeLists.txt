@@ -44,14 +44,13 @@ set(MINIZIP_SOURCES
     src/minizip/iowin32.c
 )
 
-add_executable(blacklist_checker
+set(BLACKLIST_SOURCES
     src/main.cpp
     src/core/blacklist_checker.cpp
     src/core/blacklist_service.cpp
-    src/core/persist_reader.cpp
     src/core/memory_pool.cpp
     src/core/thread_pool.cpp
-    src/net/tcp_server.cpp
+    src/core/system_utils.cpp
     src/zip/zip_basic.cpp
     src/zip/zip_utils.cpp
     src/zip/ZipExtractor.cpp
@@ -60,15 +59,12 @@ add_executable(blacklist_checker
     ${MINIZIP_SOURCES}
 )
 
-target_link_libraries(blacklist_checker PRIVATE
-    D:/Coder/socket/coost-master/build/src/libco.a
-)
+add_executable(blacklist_checker ${BLACKLIST_SOURCES})
 
 target_include_directories(blacklist_checker PRIVATE
     include
     src
     src/core
-    src/net
     src/zip
     src/zlib
     src/minizip
@@ -82,35 +78,36 @@ if(WIN32)
     )
 endif()
 
-install(TARGETS blacklist_checker DESTINATION bin)
+# 设置输出目录为项目文件夹的上一级的 BlackList 文件夹
+set(OUTPUT_DIR "${CMAKE_CURRENT_SOURCE_DIR}/../BlackList")
 
-add_executable(blacklist_test
-    tests/test_main.cpp
-    tests/test_blacklist.cpp
-    src/core/blacklist_checker.cpp
-    src/core/persist_reader.cpp
-    src/core/memory_pool.cpp
-    src/core/thread_pool.cpp
-    src/zip/zip_basic.cpp
-    src/zip/zip_utils.cpp
-    src/zip/ZipExtractor.cpp
-    include/simdjson/simdjson.cpp
-    ${ZLIB_SOURCES}
-    ${MINIZIP_SOURCES}
+set_target_properties(blacklist_checker PROPERTIES
+    RUNTIME_OUTPUT_DIRECTORY "${OUTPUT_DIR}"
 )
 
-target_link_libraries(blacklist_test PRIVATE
-    D:/Coder/socket/coost-master/build/src/libco.a
+# 测试程序
+add_executable(test_thread_config
+    test/test_thread_config.cpp
+    src/core/system_utils.cpp
 )
 
-target_include_directories(blacklist_test PRIVATE
+target_include_directories(test_thread_config PRIVATE
     include
     src
     src/core
     src/zip
     src/zlib
     src/minizip
-    tests
     coost-master/include
     include/simdjson
+)
+
+if(WIN32)
+    target_link_libraries(test_thread_config PRIVATE
+        ws2_32
+    )
+endif()
+
+set_target_properties(test_thread_config PROPERTIES
+    RUNTIME_OUTPUT_DIRECTORY "${OUTPUT_DIR}"
 )
