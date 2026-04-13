@@ -5,6 +5,7 @@
 #include "thread_pool.h"
 #include "system_utils.h"
 #include "memory_pool.h"
+#include "log_manager.h"
 #include <filesystem>
 #include <iostream>
 #include <fstream>
@@ -1218,18 +1219,25 @@ void processDirectory(const std::string& directory, BlacklistChecker& checker, s
  */
 bool loadBlacklistFromCompressedFile(const std::string& compressedPath, BlacklistChecker& checker, size_t& totalLoaded, size_t& totalInvalid, const std::string& baseDir) {
     try {
-        // 记录开始时间
         auto startTime = std::chrono::system_clock::now();
-        std::time_t start_time = std::chrono::system_clock::to_time_t(startTime);
+        std::time_t start_time = std::chrono::system_clock::to_time_t(std::chrono::system_clock::now());
+
+        LOG_INFO("==========================================");
+        LOG_INFO("Starting blacklist load from ZIP");
+        std::string timeStr = std::ctime(&start_time);
+        LOG_INFO("Start time: %s", timeStr.c_str());
+        LOG_INFO("ZIP path: %s", compressedPath.c_str());
+
         std::cout << "==========================================" << std::endl;
         std::cout << "Start loading blacklist at " << std::ctime(&start_time);
         std::cout << "==========================================" << std::endl;
-        
-        // ========== 阶段1：一级解压到磁盘（嵌套ZIP需要磁盘访问）==========
+
+        LOG_INFO("Stage 1: Extracting primary ZIP file to disk");
         std::cout << "\n[Stage 1] Extracting primary ZIP file to disk..." << std::endl;
 
         ZipExtractor extractor;
         if (extractor.open(compressedPath) != ZipExtractor::ZipResult::OK) {
+            LOG_ERROR("Failed to open compressed file: %s", extractor.getLastError().c_str());
             std::cerr << "Failed to open compressed file: " << extractor.getLastError() << std::endl;
             return false;
         }
@@ -1251,46 +1259,48 @@ bool loadBlacklistFromCompressedFile(const std::string& compressedPath, Blacklis
             destDir = exeDir + "\\" + zipFileName;
         }
 
+        LOG_INFO("Extraction destination: %s", destDir.c_str());
         std::cout << "Extracting to directory: " << destDir << std::endl;
 
         if (extractor.extractAll(destDir) != ZipExtractor::ZipResult::OK) {
+            LOG_ERROR("Primary ZIP extraction failed: %s", extractor.getLastError().c_str());
             std::cerr << "Extraction failed: " << extractor.getLastError() << std::endl;
             return false;
         }
 
         extractor.close();
 
+        LOG_INFO("Stage 1 completed: Primary ZIP extracted");
         std::cout << "Primary extraction completed" << std::endl;
 
-        // ========== 阶段2：收集省份压缩文件（从磁盘扫描）==========
+        LOG_INFO("Stage 2: Scanning for province ZIP files");
         std::cout << "\n[Stage 2] Collecting province ZIP files..." << std::endl;
         auto provinceZips = collectProvinceZips(destDir);
+        LOG_INFO("Found %zu province ZIP files", provinceZips.size());
         std::cout << "Found " << provinceZips.size() << " province ZIP files" << std::endl;
 
         if (provinceZips.empty()) {
+            LOG_WARN("No province ZIP files found, nothing to load");
             std::cout << "No province ZIP files found. Loading completed." << std::endl;
             totalLoaded = 0;
             totalInvalid = 0;
             return true;
         }
 
-        // ========== 阶段3：全局队列 + 消费者线程池 ==========
-        // 解压线程池：负责解压各省份ZIP，产生JSON文件路径
-        // 全局JSON队列：收集所有JSON文件路径
-        // 消费者线程池：从队列获取JSON文件并处理
+        LOG_INFO("Stage 3: Starting parallel JSON processing");
         std::cout << "\n[Stage 3] Processing with global queue + consumer pool..." << std::endl;
 
-        // 计算最优线程配置
         ThreadConfig config = calculateThreadConfig(provinceZips.size());
-        
-        // 线程安全的日志输出
+
+        LOG_INFO("Thread configuration - Extract: %zu, Parse: %zu, Total: %zu, Queue: %zu",
+                 config.extractThreads, config.parseThreads, config.totalThreads, config.queueSize);
+
         std::mutex logMutex;
         auto safeLog = [&](const std::string& message) {
             std::lock_guard<std::mutex> lock(logMutex);
             std::cout << message << std::endl;
         };
-        
-        // 输出配置信息
+
         std::cout << "=== Memory Stream Processing Configuration ===" << std::endl;
         std::cout << "CPU Cores: " << getCpuCoreCount() << std::endl;
         std::cout << "Extract Threads: " << config.extractThreads << " (IO intensive)" << std::endl;
@@ -1358,27 +1368,28 @@ bool loadBlacklistFromCompressedFile(const std::string& compressedPath, Blacklis
                     }
                 }
             } catch (const std::exception& e) {
+                LOG_ERROR("Consumer worker exception: %s", e.what());
                 std::cerr << "[Worker] Unexpected error: " << e.what() << std::endl;
             }
-            safeLog("Consumer thread exiting");
+            LOG_DEBUG("Consumer thread exiting");
         };
-        
-        // 启动消费者线程池（只启动parseThreads个，因为这些是专门处理JSON的）
+
+        std::cout << "Started " << config.parseThreads << " consumer threads" << std::endl;
+        LOG_INFO("Started %zu consumer threads", config.parseThreads);
+
         std::vector<std::thread> consumerThreads;
         for (size_t i = 0; i < config.parseThreads; ++i) {
             consumerThreads.emplace_back(consumerWorker);
         }
-        safeLog("Started " + std::to_string(config.parseThreads) + " consumer threads");
-        
-        // 省份任务队列：所有省份都放入队列，解压线程从队列获取任务
+
         ThreadSafeQueue<ProvinceZipInfo> provinceQueue;
-        
-        // 将所有省份放入队列
+
         for (const auto& province : provinceZips) {
             provinceQueue.push(province);
         }
-        
-        safeLog("Added " + std::to_string(provinceZips.size()) + " provinces to task queue");
+
+        LOG_INFO("Added %zu provinces to task queue", provinceZips.size());
+        std::cout << "Added " << provinceZips.size() << " provinces to task queue" << std::endl;
         
         // 解压线程：固定数量，从省份队列获取任务
         std::vector<std::thread> extractThreads;
@@ -1513,7 +1524,6 @@ bool loadBlacklistFromCompressedFile(const std::string& compressedPath, Blacklis
             });
         }
         
-        // 向省份队列添加终止信号（每个解压线程一个）
         safeLog("Sending termination signals to province queue...");
         ProvinceZipInfo terminator;
         terminator.provinceCode = 0;
@@ -1521,41 +1531,38 @@ bool loadBlacklistFromCompressedFile(const std::string& compressedPath, Blacklis
         for (size_t i = 0; i < config.extractThreads; ++i) {
             provinceQueue.push(terminator);
         }
-        
-        // 等待所有解压线程完成
+
+        LOG_INFO("Sending termination signals to extract threads");
         safeLog("Waiting for all extract threads to complete...");
         for (auto& t : extractThreads) {
             t.join();
         }
+        LOG_INFO("All %zu extract threads completed", config.extractThreads);
         safeLog("All extract threads completed");
-        
-        // 向消费者线程发送退出信号（每个消费者线程一个）
+
+        LOG_INFO("Sending termination signals to %zu consumer threads", config.parseThreads);
         safeLog("Sending termination signals to consumer threads...");
         for (size_t i = 0; i < config.parseThreads; ++i) {
             jsonTaskQueue.push(JsonTask::createTerminationTask());
         }
-        
-        // 等待所有消费者线程完成
+
+        LOG_INFO("Waiting for all consumer threads to complete");
         safeLog("Waiting for all consumer threads to complete...");
         for (auto& t : consumerThreads) {
             t.join();
         }
+        LOG_INFO("All %zu consumer threads completed", config.parseThreads);
         safeLog("All consumer threads completed");
-        
-        // ========== 阶段4：全局排序（并行）==========
-        auto sortStartTime = std::chrono::system_clock::now();
+
+        LOG_INFO("Stage 4: Starting global sort");
         std::cout << "\n[Stage 4] Sorting all data..." << std::endl;
         checker.sortAll();
-        auto sortEndTime = std::chrono::system_clock::now();
-        std::chrono::duration<double> sortElapsed = sortEndTime - sortStartTime;
-        std::cout << "Sorting completed in " << sortElapsed.count() << " seconds" << std::endl;
+        LOG_INFO("Stage 4: Global sort completed");
         
-        // 计算总加载时间
         auto endTime = std::chrono::system_clock::now();
         std::chrono::duration<double> elapsedSeconds = endTime - startTime;
         double totalSeconds = elapsedSeconds.count();
 
-        // 输出统计信息
         std::cout << "\n==========================================" << std::endl;
         std::cout << "Loading Statistics" << std::endl;
         std::cout << "==========================================" << std::endl;
@@ -1565,11 +1572,20 @@ bool loadBlacklistFromCompressedFile(const std::string& compressedPath, Blacklis
         std::cout << "Total loading time: " << totalSeconds << " seconds" << std::endl;
         std::cout << "==========================================" << std::endl;
 
+        LOG_INFO("========== Loading Statistics ==========");
+        LOG_INFO("Total provinces: %zu", provinceZips.size());
+        LOG_INFO("Total loaded: %zu", counter.loaded.load());
+        LOG_INFO("Invalid cards: %zu", counter.invalid.load());
+        LOG_INFO("Total time: %.2f seconds", totalSeconds);
+        LOG_INFO("==========================================");
+
         totalLoaded = counter.loaded;
         totalInvalid = counter.invalid;
 
+        LOG_INFO("Blacklist loading completed successfully");
         return true;
     } catch (const std::exception& e) {
+        LOG_FATAL("Exception in loadBlacklistFromCompressedFile: %s", e.what());
         std::cerr << "Error loading blacklist from compressed file: " << e.what() << std::endl;
         return false;
     }

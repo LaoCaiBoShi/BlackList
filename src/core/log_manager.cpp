@@ -17,13 +17,16 @@ void LogManager::init(const std::string& logDir, Level minLevel) {
     currentFileSize_.store(0);
     fileIndex_ = 0;
 
-    ensureDirectoryExists(logDir_);
-
     std::string path = getLogFilePath();
+    size_t lastSlash = path.find_last_of("\\/");
+    if (lastSlash != std::string::npos) {
+        ensureDirectoryExists(path.substr(0, lastSlash));
+    }
+
     logStream_ = std::make_unique<std::ofstream>(path, std::ios::app);
 
     if (logStream_->is_open()) {
-        writeLog(INFO, "LogManager initialized, log file: logs");
+        writeLog(INFO, "LogManager initialized");
     }
 }
 

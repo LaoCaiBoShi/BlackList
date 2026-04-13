@@ -19,7 +19,7 @@ public:
         DEBUG = 0,
         INFO = 1,
         WARN = 2,
-        ERROR = 3,
+        ERR = 3,       // 使用ERR避免Windows ERROR宏冲突
         FATAL = 4
     };
 
@@ -70,9 +70,9 @@ private:
           LogManager::getInstance().writeLog(LogManager::WARN, buf); } } while(0)
 
 #define LOG_ERROR(fmt, ...) \
-    do { if (LogManager::getInstance().getMinLevel() <= LogManager::ERROR) \
+    do { if (LogManager::getInstance().getMinLevel() <= LogManager::ERR) \
         { char buf[4096]; snprintf(buf, sizeof(buf), "[ERROR] " fmt, ##__VA_ARGS__); \
-          LogManager::getInstance().writeLog(LogManager::ERROR, buf); } } while(0)
+          LogManager::getInstance().writeLog(LogManager::ERR, buf); } } while(0)
 
 #define LOG_FATAL(fmt, ...) \
     do { char buf[4096]; snprintf(buf, sizeof(buf), "[FATAL] " fmt, ##__VA_ARGS__); \
@@ -83,7 +83,7 @@ private:
         if (level == LogManager::DEBUG) LOG_DEBUG(fmt, ##__VA_ARGS__); \
         else if (level == LogManager::INFO) LOG_INFO(fmt, ##__VA_ARGS__); \
         else if (level == LogManager::WARN) LOG_WARN(fmt, ##__VA_ARGS__); \
-        else if (level == LogManager::ERROR) LOG_ERROR(fmt, ##__VA_ARGS__); \
+        else if (level == LogManager::ERR) LOG_ERROR(fmt, ##__VA_ARGS__); \
         else LOG_FATAL(fmt, ##__VA_ARGS__); } } while(0)
 
 #define LOG_EVERY_N(n, level, fmt, ...) \

@@ -1,6 +1,7 @@
 #define _CRT_SECURE_NO_WARNINGS
 
 #include "blacklist_checker.h"
+#include "log_manager.h"
 #include <iostream>
 #include <fstream>
 #include <sstream>
@@ -24,8 +25,8 @@
  * @brief 构造函数
  */
 BlacklistChecker::BlacklistChecker() {
-    // 初始化版本信息
     std::fill(versionInfo.begin(), versionInfo.end(), ' ');
+    LOG_DEBUG("BlacklistChecker created");
 }
 
 /**
@@ -503,13 +504,13 @@ void BlacklistChecker::reserveProvinceCapacity(int provinceCode, size_t capacity
     if (provinceCode < 0 || static_cast<size_t>(provinceCode) >= MAX_PROVINCE_CODE) {
         return;
     }
-    
+
     size_t avgPerType = capacity / 3;
     for (size_t j = 0; j < 3; ++j) {
         provinceShards[provinceCode].cards[j].reserve(avgPerType);
     }
-    
-    std::cout << "Reserved capacity for province " << provinceCode << ": " << capacity << " cards" << std::endl;
+
+    LOG_DEBUG("Reserved capacity for province %d: %zu cards", provinceCode, capacity);
 }
 
 /**
@@ -547,15 +548,18 @@ void BlacklistChecker::sortAll() {
 
 void BlacklistChecker::sortProvince(int provinceCode) {
     if (provinceCode < 0 || static_cast<size_t>(provinceCode) >= MAX_PROVINCE_CODE) {
+        LOG_WARN("sortProvince: invalid province code %d", provinceCode);
         return;
     }
-    
+
+    LOG_DEBUG("sortProvince %d: starting", provinceCode);
     for (size_t typeIdx = 0; typeIdx < 3; ++typeIdx) {
         auto& cards = provinceShards[provinceCode].cards[typeIdx];
         if (cards.size() > 1) {
             std::sort(cards.begin(), cards.end());
         }
     }
+    LOG_DEBUG("sortProvince %d: completed", provinceCode);
 }
 
 /**

@@ -5,19 +5,27 @@
 
 #include "blacklist_service.h"
 #include "zip_utils.h"
+#include "log_manager.h"
 #include <iostream>
 #include <chrono>
 
 BlacklistService::BlacklistService()
     : status_(Status::UNINITIALIZED) {
     checker_ = std::make_unique<BlacklistChecker>();
+    LOG_DEBUG("BlacklistService created");
 }
 
 BlacklistService::~BlacklistService() {
+    LOG_DEBUG("BlacklistService destroyed");
 }
 
 bool BlacklistService::initialize(const std::string& zipPath) {
+    auto startTime = std::chrono::steady_clock::now();
+
     std::cout << "[BlacklistService] Loading from ZIP synchronously..." << std::endl;
+    LOG_INFO("BlacklistService initialization starting...");
+    LOG_INFO("ZIP path: %s", zipPath.c_str());
+
     {
         std::lock_guard<std::mutex> statusLock(statusMutex_);
         status_ = Status::LOADING;
@@ -29,6 +37,14 @@ bool BlacklistService::initialize(const std::string& zipPath) {
     if (success) {
         std::cout << "[BlacklistService] Loaded " << loaded
                   << " records from ZIP" << std::endl;
+
+        auto duration = std::chrono::duration_cast<std::chrono::milliseconds>(
+            std::chrono::steady_clock::now() - startTime).count();
+
+        LOG_INFO("BlacklistService initialization completed successfully");
+        LOG_INFO("Loaded records: %zu, Invalid: %zu, Duration: %lld ms",
+                 loaded, invalid, (long long)duration);
+
         {
             std::lock_guard<std::mutex> statusLock(statusMutex_);
             status_ = Status::READY;
@@ -36,6 +52,8 @@ bool BlacklistService::initialize(const std::string& zipPath) {
         return true;
     } else {
         setError("Failed to load from ZIP file");
+        LOG_ERROR("BlacklistService initialization failed");
+
         {
             std::lock_guard<std::mutex> statusLock(statusMutex_);
             status_ = Status::ERROR;
@@ -103,4 +121,5 @@ void BlacklistService::setError(const std::string& errorMsg) {
     std::lock_guard<std::mutex> lock(errorMutex_);
     lastError_ = errorMsg;
     std::cerr << "[BlacklistService] ERROR: " << errorMsg << std::endl;
+    LOG_ERROR("BlacklistService error: %s", errorMsg.c_str());
 }
