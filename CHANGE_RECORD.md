@@ -2,13 +2,55 @@
 
 ## 版本信息
 
-**当前版本**：v2026-04-13-3
+**当前版本**：v2026-04-13-4
 **最后更新**：2026-04-13
-**Git提交**：`13e806b`
+**Git提交**：`d8e1621`
 
 ---
 
 ## 2026-04-13
+
+### 版本：v2026-04-13-4
+
+**Git标签**：v2026-04-13-4
+
+**改动**：日志系统完善与编译错误修复
+
+---
+
+### 1. 编译错误修复
+
+| 文件 | 问题 | 修复 |
+|------|------|------|
+| `src/zip/zip_utils.cpp` | `steady_clock` vs `system_clock` 类型不匹配 | 统一使用 `system_clock::now()` |
+| `src/zip/zip_utils.cpp` | `atomic` 变量直接传给 `snprintf` | 使用 `.load()` 方法获取值 |
+| `src/zip/zip_utils.cpp` | 未使用参数 `zipFilePath` 警告 | 添加 `(void)zipFilePath` 消除警告 |
+
+---
+
+### 2. 日志系统完善
+
+**日志路径**：程序运行目录 `D:/Coder/BlackList/logs/YYYY/MM/app_YYYY_MM_DD.log`
+
+**日志目录结构**：
+```
+D:/Coder/BlackList/logs/
+└── 2026/
+    └── 04/
+        └── app_2026_04_13.log
+```
+
+**修复内容**：
+- `LogManager::init()` 现在会在初始化时创建完整的年/月子目录结构
+- 之前只创建了 `logs` 目录，但没有创建 `2026/04` 子目录，导致日志文件无法创建
+
+**已添加日志的位置**：
+- `src/main.cpp` - 程序启动、文件验证
+- `src/core/blacklist_service.cpp` - 服务初始化
+- `src/core/blacklist_checker.cpp` - 检查器创建、分片排序
+- `src/zip/zip_utils.cpp` - 处理阶段、线程操作、统计信息
+
+---
 
 ### 版本：v2026-04-13-3
 
