@@ -2,9 +2,119 @@
 
 ## 版本信息
 
-**当前版本**：v2026-04-13-2
+**当前版本**：v2026-04-13-3
 **最后更新**：2026-04-13
-**Git提交**：`601d0d2`
+**Git提交**：`13e806b`
+
+---
+
+## 2026-04-13
+
+### 版本：v2026-04-13-3
+
+**Git标签**：v2026-04-13-3
+
+---
+
+### 改动：日志模块（LogManager）
+
+**文件**：
+- `include/log_manager.h` - 日志管理器头文件
+- `src/core/log_manager.cpp` - 日志管理器实现
+- `CMakeLists.txt` - 添加日志模块源文件
+
+---
+
+#### 1. 功能概述
+
+| 功能 | 说明 |
+|-----|------|
+| 日志级别 | DEBUG、INFO、WARN、ERROR、FATAL |
+| 存储位置 | `logs/` 文件夹 |
+| 目录结构 | 按年/月分级保存 |
+| 文件大小 | 单文件不超过20MB，超限自动分卷 |
+
+#### 2. 目录结构
+
+```
+logs/
+└── 2026/
+    └── 04/
+        ├── app_2026_04_13.log      (0-20MB)
+        ├── app_2026_04_13_1.log    (20-40MB)
+        ├── app_2026_04_13_2.log    (40-60MB)
+        └── ...
+```
+
+#### 3. 日志格式
+
+```
+[2026-04-13 15:30:45] [INFO ] 程序启动
+[2026-04-13 15:30:45] [DEBUG] 配置加载: cpuCount=32
+[2026-04-13 15:30:46] [ERROR] 文件打开失败: data.json
+[2026-04-13 15:30:47] [FATAL] 内存分配失败
+```
+
+#### 4. API 使用示例
+
+```cpp
+#include "log_manager.h"
+
+int main() {
+    // 初始化日志系统
+    LogManager::getInstance().init("logs", LogManager::DEBUG);
+
+    // 使用日志宏
+    LOG_DEBUG("调试信息: value=%d", 100);
+    LOG_INFO("程序启动");
+    LOG_WARN("警告: 内存使用率 %d%%", 85);
+    LOG_ERROR("错误: 文件打开失败 - %s", strerror(errno));
+    LOG_FATAL("致命错误: 无法继续执行");
+
+    return 0;
+}
+```
+
+#### 5. 宏定义说明
+
+| 宏 | 说明 |
+|----|------|
+| `LOG_DEBUG(fmt, ...)` | 调试信息 |
+| `LOG_INFO(fmt, ...)` | 一般信息 |
+| `LOG_WARN(fmt, ...)` | 警告信息 |
+| `LOG_ERROR(fmt, ...)` | 错误信息 |
+| `LOG_FATAL(fmt, ...)` | 致命错误（总是记录） |
+| `LOG_IF(cond, level, fmt, ...)` | 条件日志 |
+| `LOG_EVERY_N(n, level, fmt, ...)` | 周期性日志 |
+
+#### 6. 核心实现
+
+**单例模式**：
+```cpp
+static LogManager& getInstance() {
+    static LogManager instance;
+    return instance;
+}
+```
+
+**线程安全**：
+- 互斥锁保护文件写入
+- 原子变量追踪文件大小
+
+**自动分卷**：
+```cpp
+void LogManager::rollLogFileIfNeeded() {
+    if (currentFileSize_.load() >= MAX_LOG_FILE_SIZE) {
+        // 关闭当前文件，创建新文件
+        fileIndex_++;
+        currentFileSize_.store(0);
+    }
+}
+```
+
+---
+
+**状态**：✅ 已完成，编译通过
 
 ---
 

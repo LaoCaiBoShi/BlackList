@@ -51,6 +51,7 @@ set(BLACKLIST_SOURCES
     src/core/memory_pool.cpp
     src/core/thread_pool.cpp
     src/core/system_utils.cpp
+    src/core/log_manager.cpp
     src/zip/zip_basic.cpp
     src/zip/zip_utils.cpp
     src/zip/ZipExtractor.cpp
