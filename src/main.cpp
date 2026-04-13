@@ -80,9 +80,47 @@ int main(int argc, char* argv[]) {
         std::getline(std::cin, zipPath);
     }
 
-    if (zipPath.empty()) {
-        std::cout << "Error: No ZIP file specified" << std::endl;
-        return 1;
+    // 循环检查文件直到找到有效文件
+    while (true) {
+        if (zipPath.empty()) {
+            std::cout << "\nError: No ZIP file specified" << std::endl;
+        } else if (!std::filesystem::exists(zipPath)) {
+            std::cout << "\n==========================================" << std::endl;
+            std::cout << "Error: File not found" << std::endl;
+            std::cout << "==========================================" << std::endl;
+            std::cout << "The specified file does not exist: " << zipPath << std::endl;
+            std::cout << "\nPlease check the file path and try again." << std::endl;
+            std::cout << "\nUsage: " << std::endl;
+            std::cout << "  1. Run the program: blacklist_checker.exe" << std::endl;
+            std::cout << "  2. Enter the full path to the ZIP file" << std::endl;
+            std::cout << "  3. Or drag and drop the file into the terminal" << std::endl;
+            std::cout << "\nExample paths:" << std::endl;
+            std::cout << "  D:\\Data\\blacklist.zip" << std::endl;
+            std::cout << "  C:\\Users\\Admin\\Downloads\\data.zip" << std::endl;
+            std::cout << "==========================================" << std::endl;
+        } else {
+            // 文件存在，跳出循环
+            break;
+        }
+
+        // 提示重新输入
+        std::cout << "\nPlease enter a valid ZIP file path (or 'quit' to exit): ";
+        std::getline(std::cin, zipPath);
+
+        // 清理输入首尾空白
+        zipPath.erase(0, zipPath.find_first_not_of(" \t\r\n"));
+        size_t endPos = zipPath.find_last_not_of(" \t\r\n");
+        if (endPos != std::string::npos) {
+            zipPath.erase(endPos + 1);
+        } else {
+            zipPath.clear();
+        }
+
+        // 只在明确输入quit命令时才退出，空输入继续等待
+        if (!zipPath.empty() && (zipPath == "quit" || zipPath == "q" || zipPath == "exit")) {
+            std::cout << "Exiting..." << std::endl;
+            return 0;
+        }
     }
 
     BlacklistService service;

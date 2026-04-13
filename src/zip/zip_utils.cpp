@@ -24,12 +24,18 @@
 
 // simdjson JSON 解析库
 #include "simdjson.h"
+#include "memory_pool.h"
 
 // Windows 特定头文件
 #ifdef _WIN32
 #include <windows.h>
 #include <psapi.h>
 #endif
+
+constexpr size_t MAX_SINGLE_FILE_SIZE = 50 * 1024 * 1024;  // 单个JSON文件最大50MB
+constexpr size_t MAX_JSON_FILES_COUNT = 100000;              // 最大JSON文件数量
+constexpr int MAX_RETRY_COUNT = 3;                          // 最大重试次数
+constexpr int TERMINATION_SIGNAL_PROVINCE = -1;              // 终止信号专用省份代码
 
 // 全局计数器
 std::atomic<size_t> globalLoadedCount(0);
@@ -76,39 +82,61 @@ size_t calculateParallelProvinces(size_t cpuCount, size_t provinceCount, size_t 
 
 /**
  * @brief 线程安全队列，用于存储 JSON 文件路径
+ *        带超时机制的消费者-生产者模式
  */
 template <typename T>
 class ThreadSafeQueue {
 public:
+    using Clock = std::chrono::steady_clock;
+    using TimePoint = Clock::time_point;
+    using Duration = std::chrono::milliseconds;
+
     /**
      * @brief 构造函数
      * @param maxSize 队列最大容量，0表示无限制
      */
-    ThreadSafeQueue(size_t maxSize = 0) : maxSize(maxSize) {}
-    
+    ThreadSafeQueue(size_t maxSize = 0) : done(false), maxSize(maxSize) {}
+
     /**
-     * @brief 向队列中添加元素
+     * @brief 向队列中添加元素（带超时）
      * @param item 要添加的元素
+     * @param timeout 超时时间
+     * @return 是否添加成功
      */
-    void push(T item) {
+    bool push(T item, const Duration& timeout = Duration(1000)) {
         std::unique_lock<std::mutex> lock(mutex);
-        // 如果队列有大小限制，等待队列有空间
         if (maxSize > 0) {
-            notFull.wait(lock, [this]() { return queue.size() < maxSize || done; });
+            if (!notFull.wait_for(lock, timeout, [this]() {
+                return queue.size() < maxSize || done;
+            })) {
+                std::cerr << "[ThreadSafeQueue] Push timeout" << std::endl;
+                return false;
+            }
         }
-        if (done) return;
+        if (done) {
+            std::cerr << "[ThreadSafeQueue] Push rejected: queue is done" << std::endl;
+            return false;
+        }
         queue.push(std::move(item));
         notEmpty.notify_one();
+        return true;
     }
-    
+
     /**
-     * @brief 从队列中获取元素
-     * @return 队列中的元素，如果队列为空且标记为完成，则返回默认构造的元素
+     * @brief 从队列中获取元素（带超时）
+     * @param timeout 超时时间
+     * @return 队列中的元素，如果队列为空或超时，返回默认构造的元素
      */
-    T pop() {
+    T pop(const Duration& timeout = Duration(1000)) {
         std::unique_lock<std::mutex> lock(mutex);
-        notEmpty.wait(lock, [this]() { return !queue.empty() || done; });
-        if (queue.empty()) return T();
+        if (!notEmpty.wait_for(lock, timeout, [this]() {
+            return !queue.empty() || done;
+        })) {
+            return T();
+        }
+        if (queue.empty()) {
+            return T();
+        }
         T item = std::move(queue.front());
         queue.pop();
         if (maxSize > 0) {
@@ -116,7 +144,25 @@ public:
         }
         return item;
     }
-    
+
+    /**
+     * @brief 尝试弹出元素（非阻塞）
+     * @param item 输出参数，弹出的元素
+     * @return 是否成功弹出
+     */
+    bool try_pop(T& item) {
+        std::lock_guard<std::mutex> lock(mutex);
+        if (queue.empty()) {
+            return false;
+        }
+        item = std::move(queue.front());
+        queue.pop();
+        if (maxSize > 0) {
+            notFull.notify_one();
+        }
+        return true;
+    }
+
     /**
      * @brief 标记队列完成
      */
@@ -126,32 +172,40 @@ public:
         notEmpty.notify_all();
         notFull.notify_all();
     }
-    
+
     /**
      * @brief 检查队列是否为空
      * @return 队列是否为空
      */
-    bool empty() {
+    bool empty() const {
         std::lock_guard<std::mutex> lock(mutex);
         return queue.empty();
     }
-    
+
     /**
      * @brief 获取队列当前大小
      * @return 队列大小
      */
-    size_t size() {
+    size_t size() const {
         std::lock_guard<std::mutex> lock(mutex);
         return queue.size();
     }
-    
+
+    /**
+     * @brief 获取队列容量
+     * @return 队列容量
+     */
+    size_t capacity() const {
+        return maxSize;
+    }
+
 private:
-    std::queue<T> queue;       // 存储元素的队列
-    std::mutex mutex;           // 互斥锁
-    std::condition_variable notEmpty; // 非空条件变量
-    std::condition_variable notFull;  // 非满条件变量
-    bool done = false;          // 完成标记
-    size_t maxSize = 0;         // 队列最大容量
+    mutable std::queue<T> queue;       // 存储元素的队列
+    mutable std::mutex mutex;         // 互斥锁
+    std::condition_variable notEmpty;  // 非空条件变量
+    std::condition_variable notFull;   // 非满条件变量
+    bool done;                        // 完成标记
+    size_t maxSize;                   // 队列最大容量
 };
 
 /**
@@ -187,13 +241,25 @@ struct ThreadSafeCounter {
  */
 struct JsonTask {
     int provinceCode;           // 省份代码
-    std::string content;         // JSON文件内容（内存中）
-    std::string filePath;        // 原始文件路径（用于日志）
+    std::string content;        // JSON文件内容（内存中）
+    std::string filePath;       // 原始文件路径（用于日志）
 
     JsonTask() : provinceCode(0) {}
 
     JsonTask(int code, std::string&& jsonContent, const std::string& path)
         : provinceCode(code), content(std::move(jsonContent)), filePath(path) {}
+
+    static JsonTask createTerminationTask() {
+        return JsonTask(TERMINATION_SIGNAL_PROVINCE, std::string(), std::string());
+    }
+
+    bool isTermination() const {
+        return provinceCode == TERMINATION_SIGNAL_PROVINCE;
+    }
+
+    bool isEmpty() const {
+        return provinceCode == 0 && content.empty();
+    }
 };
 
 /**
@@ -309,78 +375,153 @@ bool extractCardIdsFromJson(const std::string& filePath, std::vector<std::string
  * @param batchSize 批量大小
  */
 /**
- * @brief 从内存中的JSON内容提取卡号
+ * @brief 验证字符串是否为有效的UTF-8编码
+ * @param str 输入字符串
+ * @param length 字符串长度
+ * @return 是否为有效的UTF-8
+ */
+bool isValidUTF8(const char* str, size_t length) {
+    const unsigned char* bytes = reinterpret_cast<const unsigned char*>(str);
+    while (length > 0) {
+        if (*bytes <= 0x7F) {
+            bytes++;
+            length--;
+        } else if ((*bytes & 0xE0) == 0xC0) {
+            if (length < 2) return false;
+            if ((bytes[1] & 0xC0) != 0x80) return false;
+            bytes += 2;
+            length -= 2;
+        } else if ((*bytes & 0xF0) == 0xE0) {
+            if (length < 3) return false;
+            if ((bytes[1] & 0xC0) != 0x80) return false;
+            if ((bytes[2] & 0xC0) != 0x80) return false;
+            bytes += 3;
+            length -= 3;
+        } else if ((*bytes & 0xF8) == 0xF0) {
+            if (length < 4) return false;
+            if ((bytes[1] & 0xC0) != 0x80) return false;
+            if ((bytes[2] & 0xC0) != 0x80) return false;
+            if ((bytes[3] & 0xC0) != 0x80) return false;
+            bytes += 4;
+            length -= 4;
+        } else {
+            return false;
+        }
+    }
+    return true;
+}
+
+/**
+ * @brief 从内存中的JSON内容提取卡号（带异常处理）
  * @param jsonContent JSON文件内容
  * @param filePath 文件路径（用于日志）
  * @param checker 黑名单检查器
  * @param counter 线程安全计数器
+ * @return 处理是否成功
  */
-void processJsonContentFromMemory(const std::string& jsonContent, const std::string& filePath,
+bool processJsonContentFromMemory(const std::string& jsonContent, const std::string& filePath,
                                    BlacklistChecker& checker, ThreadSafeCounter& counter) {
-    try {
-        std::string fileName = filePath.substr(filePath.find_last_of("\\/") + 1);
-        std::cout << "Processing JSON from memory: " << fileName << std::endl;
+    std::string fileName = filePath.substr(filePath.find_last_of("\\/") + 1);
 
-        // 使用线程局部parser
+    try {
+        if (jsonContent.empty()) {
+            std::cerr << "[JSON] Empty content: " << fileName << std::endl;
+            return false;
+        }
+
+        size_t contentSize = jsonContent.size();
+        if (contentSize > MAX_SINGLE_FILE_SIZE) {
+            std::cerr << "[JSON] File too large: " << fileName
+                      << " (" << contentSize << " bytes > " << MAX_SINGLE_FILE_SIZE << ")" << std::endl;
+            return false;
+        }
+
+        if (!isValidUTF8(jsonContent.data(), jsonContent.size())) {
+            std::cerr << "[JSON] Invalid UTF-8 encoding: " << fileName << std::endl;
+            counter.addInvalid(1);
+            return false;
+        }
+
         thread_local simdjson::dom::parser localParser;
         auto json_result = localParser.parse(jsonContent);
 
         if (json_result.error()) {
-            std::cerr << "JSON parsing error: " << simdjson::error_message(json_result.error()) << " in: " << fileName << std::endl;
-            return;
+            std::cerr << "[JSON] Parse error in " << fileName << ": "
+                      << simdjson::error_message(json_result.error()) << std::endl;
+            return false;
         }
 
         simdjson::dom::element json = json_result.value();
 
         if (!json.is_array()) {
-            std::cerr << "JSON root is not an array: " << fileName << std::endl;
-            return;
+            std::cerr << "[JSON] Root is not array: " << fileName << std::endl;
+            return false;
         }
 
         simdjson::dom::array array = json.get_array();
-
-        // 收集有效卡号
         std::vector<std::string> validCardIds;
-        validCardIds.reserve(array.size());
+        validCardIds.reserve(std::min(array.size(), size_t(2000)));
 
+        size_t invalidCount = 0;
         for (simdjson::dom::element element : array) {
             simdjson::dom::object obj = element.get_object();
             simdjson::dom::element cardIdElement;
             simdjson::error_code error = obj["cardId"].get(cardIdElement);
-            if (error) continue;
+            if (error) {
+                invalidCount++;
+                continue;
+            }
 
             std::string_view cardIdView;
             error = cardIdElement.get(cardIdView);
-            if (error) continue;
+            if (error) {
+                invalidCount++;
+                continue;
+            }
 
-            // 直接使用 string_view 验证，避免复制
-            if (cardIdView.length() == 20) {
-                bool valid = true;
-                for (char c : cardIdView) {
-                    if (c < '0' || c > '9') {
-                        valid = false;
-                        break;
-                    }
+            if (cardIdView.length() != 20) {
+                invalidCount++;
+                continue;
+            }
+
+            bool valid = true;
+            for (char c : cardIdView) {
+                if (c < '0' || c > '9') {
+                    valid = false;
+                    break;
                 }
-                if (valid) {
-                    validCardIds.emplace_back(cardIdView);
-                }
+            }
+
+            if (valid) {
+                validCardIds.emplace_back(cardIdView);
+            } else {
+                invalidCount++;
             }
         }
 
-        // 批量添加
         if (!validCardIds.empty()) {
             checker.addBatch(validCardIds);
             counter.addLoaded(validCardIds.size());
             globalLoadedCount += validCardIds.size();
-            std::cout << "Extracted " << validCardIds.size() << " card IDs from " << fileName << std::endl;
-
-            if (globalLoadedCount % 100000 == 0 && globalLoadedCount > 0) {
-                std::cout << "Current blacklist total: " << globalLoadedCount << " items" << std::endl;
-            }
         }
+
+        if (invalidCount > 0) {
+            counter.addInvalid(invalidCount);
+        }
+
+        return true;
+    } catch (const std::bad_alloc& e) {
+        std::cerr << "[JSON] Memory allocation failed for " << fileName
+                  << ": " << e.what() << std::endl;
+        return false;
+    } catch (const simdjson::simdjson_error& e) {
+        std::cerr << "[JSON] Simdjson error in " << fileName
+                  << ": " << e.what() << std::endl;
+        return false;
     } catch (const std::exception& e) {
-        std::cerr << "Error processing JSON from memory " << filePath << ": " << e.what() << std::endl;
+        std::cerr << "[JSON] Unexpected error processing " << fileName
+                  << ": " << e.what() << std::endl;
+        return false;
     }
 }
 
@@ -501,6 +642,44 @@ void extractAndCollectJson(const std::string& zipFilePath, ThreadSafeQueue<std::
     } catch (const std::exception& e) {
         std::cerr << "Error extracting file " << zipFilePath << ": " << e.what() << std::endl;
     }
+}
+
+/**
+ * @brief 从ZIP文件内容收集省份压缩文件信息（内存流式，不落盘）
+ * @param zipFilePath ZIP文件路径
+ * @return 省份压缩文件信息列表
+ */
+std::vector<ProvinceZipInfo> collectProvinceZipsFromZip(ZipExtractor& extractor, const std::string& zipFilePath) {
+    std::vector<ProvinceZipInfo> provinceZips;
+
+    std::cout << "  [Memory Stream] Scanning ZIP for province archives..." << std::endl;
+
+    std::vector<std::string> allFiles = extractor.getFileList();
+    int totalZips = 0;
+
+    for (const auto& fileName : allFiles) {
+        std::string shortName = fileName;
+        size_t lastSlash = shortName.find_last_of("\\/");
+        if (lastSlash != std::string::npos) {
+            shortName = shortName.substr(lastSlash + 1);
+        }
+
+        if (shortName.find(".zip") != std::string::npos) {
+            totalZips++;
+            int provinceCode = extractProvinceCode(shortName);
+            provinceZips.push_back({provinceCode, fileName, 0, {}});
+            std::cout << "  Found province zip in ZIP: " << shortName
+                      << " (province code: " << provinceCode << ")" << std::endl;
+        }
+    }
+
+    std::cout << "  [Memory Stream] Total ZIP files found: " << totalZips << std::endl;
+
+    std::sort(provinceZips.begin(), provinceZips.end(), [](const ProvinceZipInfo& a, const ProvinceZipInfo& b) -> bool {
+        return a.size > b.size;
+    });
+
+    return provinceZips;
 }
 
 /**
@@ -1046,26 +1225,21 @@ bool loadBlacklistFromCompressedFile(const std::string& compressedPath, Blacklis
         std::cout << "Start loading blacklist at " << std::ctime(&start_time);
         std::cout << "==========================================" << std::endl;
         
-        // ========== 阶段1：一级解压（串行）==========
-        std::cout << "\n[Stage 1] Extracting primary ZIP file..." << std::endl;
-        
-        // 创建 ZipExtractor 实例
+        // ========== 阶段1：一级解压到磁盘（嵌套ZIP需要磁盘访问）==========
+        std::cout << "\n[Stage 1] Extracting primary ZIP file to disk..." << std::endl;
+
         ZipExtractor extractor;
-        
-        // 打开压缩文件
         if (extractor.open(compressedPath) != ZipExtractor::ZipResult::OK) {
             std::cerr << "Failed to open compressed file: " << extractor.getLastError() << std::endl;
             return false;
         }
-        
-        // 提取压缩文件名（不含扩展名）作为目标目录名
+
         std::string zipFileName = compressedPath.substr(compressedPath.find_last_of("\\/") + 1);
         size_t dotPos = zipFileName.find_last_of(".");
         if (dotPos != std::string::npos) {
             zipFileName = zipFileName.substr(0, dotPos);
         }
-        
-        // 构建目标目录路径
+
         std::string destDir;
         if (!baseDir.empty()) {
             destDir = baseDir + "\\" + zipFileName;
@@ -1076,35 +1250,30 @@ bool loadBlacklistFromCompressedFile(const std::string& compressedPath, Blacklis
             exeDir = exeDir.substr(0, exeDir.find_last_of("\\/"));
             destDir = exeDir + "\\" + zipFileName;
         }
-        
+
         std::cout << "Extracting to directory: " << destDir << std::endl;
-        
-        // 解压所有文件
+
         if (extractor.extractAll(destDir) != ZipExtractor::ZipResult::OK) {
             std::cerr << "Extraction failed: " << extractor.getLastError() << std::endl;
             return false;
         }
-        
-        // 关闭压缩文件
+
         extractor.close();
-        
-        // 记录解压完成时间
-        auto extractEndTime = std::chrono::system_clock::now();
-        std::time_t extract_end_time = std::chrono::system_clock::to_time_t(extractEndTime);
-        std::cout << "Primary extraction completed at " << std::ctime(&extract_end_time);
-        
-        // ========== 阶段2：收集省份压缩文件（串行）==========
+
+        std::cout << "Primary extraction completed" << std::endl;
+
+        // ========== 阶段2：收集省份压缩文件（从磁盘扫描）==========
         std::cout << "\n[Stage 2] Collecting province ZIP files..." << std::endl;
         auto provinceZips = collectProvinceZips(destDir);
         std::cout << "Found " << provinceZips.size() << " province ZIP files" << std::endl;
-        
+
         if (provinceZips.empty()) {
             std::cout << "No province ZIP files found. Loading completed." << std::endl;
             totalLoaded = 0;
             totalInvalid = 0;
             return true;
         }
-        
+
         // ========== 阶段3：全局队列 + 消费者线程池 ==========
         // 解压线程池：负责解压各省份ZIP，产生JSON文件路径
         // 全局JSON队列：收集所有JSON文件路径
@@ -1151,48 +1320,55 @@ bool loadBlacklistFromCompressedFile(const std::string& compressedPath, Blacklis
         
         // 消费者线程：从全局队列获取JSON任务并处理
         auto consumerWorker = [&]() {
-            while (true) {
-                JsonTask task = jsonTaskQueue.pop();
+            try {
+                while (true) {
+                    JsonTask task = jsonTaskQueue.pop(std::chrono::seconds(2));
 
-                // 收到空任务（终止信号），退出
-                if (task.content.empty() && task.provinceCode == 0) {
-                    break;
-                }
+                    if (task.isTermination()) {
+                        break;
+                    }
 
-                // 处理JSON内容
-                processJsonContentFromMemory(task.content, task.filePath, checker, counter);
-                size_t current = ++processedCount;
+                    if (task.isEmpty()) {
+                        continue;
+                    }
 
-                // 检查是否该省份所有JSON都处理完成
-                if (task.provinceCode > 0) {
-                    std::lock_guard<std::mutex> lock(provinceStatsMutex);
-                    size_t processed = ++provinceStats[task.provinceCode].processedJsons;
-                    size_t total = provinceStats[task.provinceCode].totalJsons;
+                    bool success = processJsonContentFromMemory(task.content, task.filePath, checker, counter);
+                    if (!success) {
+                        std::cerr << "[Worker] Failed to process: " << task.filePath << std::endl;
+                    }
 
-                    // 如果该省份所有JSON都处理完成，则对该省份排序
-                    if (total > 0 && processed >= total) {
-                        checker.sortProvince(task.provinceCode);
-                        safeLog("Province " + std::to_string(task.provinceCode) +
-                               " sort completed (" + std::to_string(processed) + "/" +
-                               std::to_string(total) + " JSON files)");
+                    size_t current = ++processedCount;
+
+                    if (task.provinceCode > 0) {
+                        std::lock_guard<std::mutex> lock(provinceStatsMutex);
+                        size_t processed = ++provinceStats[task.provinceCode].processedJsons;
+                        size_t total = provinceStats[task.provinceCode].totalJsons;
+
+                        if (total > 0 && processed >= total) {
+                            checker.sortProvince(task.provinceCode);
+                            safeLog("Province " + std::to_string(task.provinceCode) +
+                                   " sort completed (" + std::to_string(processed) + "/" +
+                                   std::to_string(total) + " JSON files)");
+                        }
+                    }
+
+                    if (current % 100 == 0) {
+                        safeLog("Progress: " + std::to_string(current) + "/" +
+                               std::to_string(totalJsonFiles.load()) + " JSON files processed");
                     }
                 }
-
-                // 每处理100个文件显示一次进度
-                if (current % 100 == 0) {
-                    safeLog("Progress: " + std::to_string(current) + "/" +
-                           std::to_string(totalJsonFiles.load()) + " JSON files processed");
-                }
+            } catch (const std::exception& e) {
+                std::cerr << "[Worker] Unexpected error: " << e.what() << std::endl;
             }
             safeLog("Consumer thread exiting");
         };
         
-        // 启动消费者线程池
+        // 启动消费者线程池（只启动parseThreads个，因为这些是专门处理JSON的）
         std::vector<std::thread> consumerThreads;
-        for (size_t i = 0; i < config.totalThreads; ++i) {
+        for (size_t i = 0; i < config.parseThreads; ++i) {
             consumerThreads.emplace_back(consumerWorker);
         }
-        safeLog("Started " + std::to_string(config.totalThreads) + " consumer threads");
+        safeLog("Started " + std::to_string(config.parseThreads) + " consumer threads");
         
         // 省份任务队列：所有省份都放入队列，解压线程从队列获取任务
         ThreadSafeQueue<ProvinceZipInfo> provinceQueue;
@@ -1220,99 +1396,112 @@ bool loadBlacklistFromCompressedFile(const std::string& compressedPath, Blacklis
                             break;
                         }
                         
-                        safeLog("Extract thread " + std::to_string(i) + ": Processing province " + 
+                        safeLog("Extract thread " + std::to_string(i) + ": Processing province " +
                                std::to_string(provinceInfo.provinceCode));
-                        
-                        // 1. 解压ZIP文件
+
                         ZipExtractor extractor;
                         if (extractor.open(provinceInfo.zipPath) != ZipExtractor::ZipResult::OK) {
-                            std::cerr << "Failed to open " << provinceInfo.zipPath << ": " 
+                            std::cerr << "Failed to open " << provinceInfo.zipPath << ": "
                                      << extractor.getLastError() << std::endl;
                             continue;
                         }
-                        
-                        std::string zipFileName = provinceInfo.zipPath.substr(
-                            provinceInfo.zipPath.find_last_of("\\/") + 1);
-                        size_t dotPos = zipFileName.find_last_of(".");
-                        if (dotPos != std::string::npos) {
-                            zipFileName = zipFileName.substr(0, dotPos);
-                        }
-                        
-                        std::string extractDestDir = provinceInfo.zipPath.substr(
-                            0, provinceInfo.zipPath.find_last_of("\\/") + 1) + zipFileName;
-                        
-                        if (extractor.extractAll(extractDestDir) != ZipExtractor::ZipResult::OK) {
-                            std::cerr << "Failed to extract " << provinceInfo.zipPath << ": " 
-                                     << extractor.getLastError() << std::endl;
-                            extractor.close();
-                            continue;
-                        }
-                        
-                        extractor.close();
-                        
-                        safeLog("Extract thread " + std::to_string(i) + ": Province " +
-                               std::to_string(provinceInfo.provinceCode) + " ZIP extracted");
 
-                        // 2. 读取JSON文件内容到内存，并放入全局队列
-                        std::vector<std::string> jsonFiles;
-                        for (const auto& entry : std::filesystem::directory_iterator(extractDestDir)) {
-                            if (entry.path().extension() == ".json") {
-                                jsonFiles.push_back(entry.path().string());
+                        std::string logMsg = "Extract thread " + std::to_string(i) + ": Province " +
+                                           std::to_string(provinceInfo.provinceCode) +
+                                           " reading JSON files directly to memory...";
+                        safeLog(logMsg);
+
+                        std::vector<std::string> jsonFileNames;
+                        for (const auto& fname : extractor.getFileList()) {
+                            std::string name;
+                            size_t lastSlash = fname.find_last_of("\\/");
+                            if (lastSlash != std::string::npos) {
+                                name = fname.substr(lastSlash + 1);
+                            } else {
+                                name = fname;
+                            }
+                            size_t dotPos = name.find_last_of(".");
+                            if (dotPos != std::string::npos && dotPos > 0 &&
+                                name.substr(dotPos + 1) == "json") {
+                                jsonFileNames.push_back(fname);
                             }
                         }
 
-                        size_t jsonCount = jsonFiles.size();
+                        size_t jsonCount = jsonFileNames.size();
                         totalJsonFiles.fetch_add(jsonCount);
 
-                        // 记录省份的JSON数量
                         {
                             std::lock_guard<std::mutex> lock(provinceStatsMutex);
                             provinceStats[provinceInfo.provinceCode].totalJsons = jsonCount;
                         }
 
-                        // 预分配容量：每个JSON文件1000个卡号，额外预留1000个冗余
+                        if (jsonCount == 0) {
+                            std::cerr << "[Extract] No JSON files found in " << provinceInfo.zipPath << std::endl;
+                            extractor.close();
+                            if (DeleteFileA(provinceInfo.zipPath.c_str())) {
+                                safeLog("Extract thread " + std::to_string(i) + ": Province " +
+                                       std::to_string(provinceInfo.provinceCode) + " empty ZIP deleted");
+                            }
+                            continue;
+                        }
+
                         size_t totalCards = jsonCount * 1000 + 1000;
                         checker.reserveProvinceCapacity(provinceInfo.provinceCode, totalCards);
 
                         safeLog("Extract thread " + std::to_string(i) + ": Province " +
                                std::to_string(provinceInfo.provinceCode) + " found " +
-                               std::to_string(jsonCount) + " JSON files, reading into memory...");
+                               std::to_string(jsonCount) + " JSON files, streaming to memory...");
 
-                        // 将JSON文件内容读入内存并放入队列
-                        for (const auto& jsonPath : jsonFiles) {
-                            try {
-                                // 读取JSON文件内容到内存
-                                std::ifstream file(jsonPath, std::ios::binary);
-                                if (!file.is_open()) {
-                                    continue;
+                        std::atomic<size_t> pushedCount(0);
+                        std::atomic<size_t> failedCount(0);
+
+                        for (const auto& jsonFileName : jsonFileNames) {
+                            std::string content;
+                            ZipExtractor::ZipResult result = extractor.readFileContent(jsonFileName, content);
+                            if (result != ZipExtractor::ZipResult::OK) {
+                                std::cerr << "[Extract] Failed to read " << jsonFileName
+                                          << ": " << extractor.getLastError() << std::endl;
+                                failedCount++;
+                                continue;
+                            }
+
+                            std::string fileName;
+                            size_t lastSlash = jsonFileName.find_last_of("\\/");
+                            if (lastSlash != std::string::npos) {
+                                fileName = jsonFileName.substr(lastSlash + 1);
+                            } else {
+                                fileName = jsonFileName;
+                            }
+
+                            JsonTask task(provinceInfo.provinceCode, std::move(content), fileName);
+
+                            int retryCount = 0;
+                            while (true) {
+                                JsonTask taskToSend = task;
+                                if (jsonTaskQueue.push(std::move(taskToSend), std::chrono::seconds(5))) {
+                                    pushedCount++;
+                                    break;
                                 }
-                                std::string content((std::istreambuf_iterator<char>(file)),
-                                                   std::istreambuf_iterator<char>());
-                                file.close();
-
-                                // 构造JsonTask并入队
-                                JsonTask task(provinceInfo.provinceCode, std::move(content), jsonPath);
-                                jsonTaskQueue.push(std::move(task));
-                            } catch (const std::exception& e) {
-                                std::cerr << "Error reading JSON file " << jsonPath << ": " << e.what() << std::endl;
+                                retryCount++;
+                                if (retryCount >= MAX_RETRY_COUNT) {
+                                    std::cerr << "[Extract] Failed to push after " << MAX_RETRY_COUNT
+                                              << " attempts, skipping: " << fileName << std::endl;
+                                    failedCount++;
+                                    break;
+                                }
                             }
                         }
 
-                        safeLog("Extract thread " + std::to_string(i) + ": Province " +
-                               std::to_string(provinceInfo.provinceCode) + " all JSON content queued");
+                        extractor.close();
 
-                        // 3. 删除解压目录和ZIP文件节省空间
-                        try {
-                            std::filesystem::remove_all(extractDestDir);
-                            safeLog("Extract thread " + std::to_string(i) + ": Province " +
-                                   std::to_string(provinceInfo.provinceCode) + " temp files deleted");
-                        } catch (const std::exception& e) {
-                            std::cerr << "Error deleting temp files: " << e.what() << std::endl;
-                        }
+                        safeLog("Extract thread " + std::to_string(i) + ": Province " +
+                                std::to_string(provinceInfo.provinceCode) + " queued " +
+                                std::to_string(pushedCount.load()) + " JSON files, failed: " +
+                                std::to_string(failedCount.load()));
 
                         if (DeleteFileA(provinceInfo.zipPath.c_str())) {
                             safeLog("Extract thread " + std::to_string(i) + ": Province " +
-                                   std::to_string(provinceInfo.provinceCode) + " ZIP deleted");
+                                   std::to_string(provinceInfo.provinceCode) + " ZIP deleted (memory stream mode)");
                         }
 
                         safeLog("Extract thread " + std::to_string(i) + ": Province " +
@@ -1342,8 +1531,8 @@ bool loadBlacklistFromCompressedFile(const std::string& compressedPath, Blacklis
         
         // 向消费者线程发送退出信号（每个消费者线程一个）
         safeLog("Sending termination signals to consumer threads...");
-        for (size_t i = 0; i < config.totalThreads; ++i) {
-            jsonTaskQueue.push(JsonTask());  // 空任务作为终止信号
+        for (size_t i = 0; i < config.parseThreads; ++i) {
+            jsonTaskQueue.push(JsonTask::createTerminationTask());
         }
         
         // 等待所有消费者线程完成

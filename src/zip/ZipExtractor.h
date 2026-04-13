@@ -43,6 +43,7 @@ public:
     ZipResult extractAllWithCallback(const std::string& destDir, std::function<void(const std::string&)> fileCallback, ProgressCallback progressCallback = nullptr);
     ZipResult extractAllWithRealTimeCallback(const std::string& destDir, FileExtractedCallback fileCallback, ProgressCallback progressCallback = nullptr);
     ZipResult extractFile(const std::string& fileName, const std::string& destPath);
+    ZipResult readFileContent(const std::string& fileName, std::string& content);
     void close();
 
     std::string getLastError() const;

@@ -297,6 +297,57 @@ ZipExtractor::ZipResult ZipExtractor::extractFile(const std::string& fileName, c
 }
 
 /**
+ * @brief 从ZIP文件读取指定文件内容到内存（不落盘）
+ * @param fileName ZIP内的文件名
+ * @param content 输出参数，文件内容
+ * @return 是否成功
+ */
+ZipExtractor::ZipResult ZipExtractor::readFileContent(const std::string& fileName, std::string& content)
+{
+    content.clear();
+
+    if (m_zipFile == nullptr)
+    {
+        m_lastError = "ZIP file not opened";
+        return ZipResult::ERR_OPEN_ZIP;
+    }
+
+    if (unzLocateFile(m_zipFile, fileName.c_str(), 0) != UNZ_OK)
+    {
+        m_lastError = "File not found in ZIP: " + fileName;
+        return ZipResult::ERR_OPEN_FILE;
+    }
+
+    unz_file_info file_info;
+    if (unzGetCurrentFileInfo(m_zipFile, &file_info, NULL, 0, NULL, 0, NULL, 0) != UNZ_OK)
+    {
+        m_lastError = "Failed to get file info: " + fileName;
+        return ZipResult::ERR_READ_FILE;
+    }
+
+    if (unzOpenCurrentFilePassword(m_zipFile, NULL) != UNZ_OK)
+    {
+        m_lastError = "Failed to open file in ZIP: " + fileName;
+        return ZipResult::ERR_READ_FILE;
+    }
+
+    content.reserve(file_info.uncompressed_size > 0 ? file_info.uncompressed_size : 4096);
+
+    const int BUFFER_SIZE = 8192;
+    char buffer[BUFFER_SIZE];
+    int bytesRead = 0;
+
+    while ((bytesRead = unzReadCurrentFile(m_zipFile, buffer, BUFFER_SIZE)) > 0)
+    {
+        content.append(buffer, bytesRead);
+    }
+
+    unzCloseCurrentFile(m_zipFile);
+
+    return ZipResult::OK;
+}
+
+/**
  * @brief 获取最近一次错误信息
  */
 std::string ZipExtractor::getLastError() const

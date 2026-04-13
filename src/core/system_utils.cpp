@@ -172,8 +172,9 @@ ThreadConfig calculateThreadConfig(size_t provinceCount) {
     // 3. 总线程数 = 解压 + 处理
     config.totalThreads = config.extractThreads + config.parseThreads;
 
-    // 4. 队列大小 = 处理线程数 * 10（每线程10个任务缓冲）
-    config.queueSize = config.parseThreads * 10UL;
+    // 4. 队列大小 = 处理线程数 * 50（每线程50个任务缓冲，减少Push超时）
+    //    对于大量JSON文件（数千个），需要更大缓冲
+    config.queueSize = config.parseThreads * 50UL;
 
     // 5. 批处理大小
     config.batchSize = calculateOptimalBatchSize();
