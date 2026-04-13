@@ -1,6 +1,20 @@
 # 变更记录文档
 
+## 版本信息
+
+**当前版本**：v2026-04-13-2
+**最后更新**：2026-04-13
+**Git提交**：`601d0d2`
+
+---
+
 ## 2026-04-13
+
+### 版本：v2026-04-13-2
+
+**Git标签**：v2026-04-13-2
+
+---
 
 ### 改动：内存流式处理技术方案完善及异常处理
 
@@ -200,7 +214,7 @@ auto consumerWorker = [&]() {
 
 ---
 
-**状态**：已完成，编译通过
+**状态**：✅ 已完成，编译通过
 
 ---
 
@@ -281,7 +295,7 @@ config.queueSize = config.parseThreads * 50UL;
 
 ---
 
-**状态**：已完成，编译通过
+**状态**：✅ 已完成，编译通过
 
 ---
 
@@ -336,7 +350,7 @@ while (true) {
 
 ---
 
-**状态**：已完成，编译通过
+**状态**：✅ 已完成，编译通过
 
 ---
 
@@ -394,54 +408,11 @@ for (jsonFile : jsonFileNames) {
 
 ---
 
-**状态**：已完成，编译通过
+**状态**：✅ 已完成，编译通过
 
 ---
 
-### 改动：Stage 1 + 2 内存流式处理（一级ZIP不落盘）
-
-**文件**：
-- `src/zip/zip_utils.cpp` - 添加`collectProvinceZipsFromZip`函数，修改`loadBlacklistFromCompressedFile`
-
-**问题描述**：
-用户观察到一级ZIP解压后有临时文件（D:\Coder\BlackList\...），不符合"全部在内存中处理"的设计需求。
-
-**问题根因**：
-原代码Stage 1使用`extractAll`将一级ZIP解压到磁盘，然后Stage 2从磁盘扫描省份ZIP。
-
-**修复方案**：
-1. 新增`collectProvinceZipsFromZip`函数：从ZIP文件列表直接获取省份ZIP文件名（不落盘）
-2. 修改Stage 1+2为内存流式：打开一级ZIP → 获取文件列表 → 收集省份ZIP信息 → 关闭
-
-```cpp
-// 改动前
-if (extractor.extractAll(destDir) != ZipExtractor::ZipResult::OK)  // 落盘！
-auto provinceZips = collectProvinceZips(destDir);  // 从磁盘扫描
-
-// 改动后
-auto provinceZips = collectProvinceZipsFromZip(extractor, compressedPath);  // 内存流
-extractor.close();
-```
-
-**内存影响评估**：
-| 阶段 | 改动前内存 | 改动后内存 | 差异 |
-|-----|-----------|-----------|------|
-| Stage 1 | ~0 | ~0 | 无变化 |
-| JSON处理 | 队列缓冲 | 队列缓冲 | 无变化 |
-| 总内存 | <1000MB | <1000MB | 无显著增加 |
-
-**说明**：Stage 1仅获取文件列表（文件名），不读取文件内容，内存开销极小。
-
-**完全内存流限制**：
-由于minizip不支持嵌套ZIP内存流式处理，二级省份ZIP内的JSON仍需通过Stage 3的`readFileContent`逐个读取。如需完全内存流，需修改minizip底层或使用支持内存流的ZIP库。
-
----
-
-**状态**：已完成，编译通过
-
----
-
-### 改动：回退Stage 1+2方案（嵌套ZIP限制）
+### 改动：Stage 1 + 2 内存流式处理尝试与回退
 
 **文件**：
 - `src/zip/zip_utils.cpp`
@@ -476,13 +447,41 @@ Stage 3: 省份ZIP → readFileContent → JSON内存流
                                     ↑ 不落盘
 ```
 
+**当前处理流程说明**：
+
+| 阶段 | 操作 | 落盘？ | 说明 |
+|-----|------|--------|-----|
+| Stage 1 | 一级ZIP解压到`destDir` | ❌ 是 | 必要（嵌套ZIP限制） |
+| Stage 2 | 扫描省份ZIP列表 | 内存 | 扫描磁盘目录 |
+| Stage 3 | 省份ZIP内JSON用`readFileContent`读取 | ✅ 否 | **真正内存流** |
+
 ---
 
-**状态**：已完成，编译通过
+**状态**：✅ 已完成，编译通过
+
+---
+
+### 改动：GitHub同步与文件清理
+
+**文件**：
+- `.gitignore` - 调整忽略规则
+
+**清理内容**：
+- 删除13个临时TXT文件
+- 删除22个临时PS1脚本
+- 将`CHANGE_RECORD.md`和`docs/`纳入Git管理
+
+---
+
+**状态**：✅ 已完成，编译通过
 
 ---
 
 ## 2026-04-12
+
+### 版本：v2026-04-12（稳定版本）
+
+---
 
 ### 改动：内存流式处理方案（解压线程 + 多线程JSON处理）
 
@@ -531,7 +530,7 @@ struct ThreadConfig {
     size_t parseThreads;        // JSON处理线程数（CPU密集型）
     size_t totalThreads;        // 总线程数
     size_t batchSize;           // 批处理大小
-    size_t queueSize;           // 队列大小（每个处理线程约10个任务缓冲）
+    size_t queueSize;           // 队列大小
 };
 ```
 
@@ -549,7 +548,7 @@ if (isSsd) {
     config.extractThreads = std::min<size_t>(4UL, cpuCount / 8UL);
 }
 config.parseThreads = cpuCount - config.extractThreads;
-config.queueSize = config.parseThreads * 10UL;
+config.queueSize = config.parseThreads * 50UL;  // 增大缓冲
 ```
 
 **32核CPU + SSD配置**：
@@ -557,116 +556,12 @@ config.queueSize = config.parseThreads * 10UL;
 Extract Threads: 8 (IO密集型)
 Parse Threads: 24 (CPU密集型)
 Total Threads: 32
-Queue Size: 240 JSON任务
+Queue Size: 1200 JSON任务
 ```
 
 ---
 
-#### 5. 修改数据流
-
-**改动前**：
-```
-解压线程 → JSON文件路径 → 队列 → 消费者线程 → 从磁盘读取JSON → 解析
-```
-
-**改动后**：
-```
-解压线程 → 读取JSON到内存 → JsonTask入队 → 消费者线程 → 解析内存JSON
-```
-
----
-
-#### 6. 修改队列类型
-
-**改动前**：
-```cpp
-ThreadSafeQueue<std::string> jsonQueue;  // 存储文件路径
-```
-
-**改动后**：
-```cpp
-ThreadSafeQueue<JsonTask> jsonTaskQueue;  // 存储JSON内容
-```
-
----
-
-#### 7. 修改消费者线程
-
-**改动前**：
-```cpp
-// 从队列获取文件路径
-std::string jsonPath = jsonQueue.pop();
-processSingleJsonFileBatch(jsonPath, checker, counter);
-```
-
-**改动后**：
-```cpp
-// 从队列获取JSON任务
-JsonTask task = jsonTaskQueue.pop();
-processJsonContentFromMemory(task.content, task.filePath, checker, counter);
-```
-
----
-
-#### 8. 修改解压线程
-
-**改动前**：
-```cpp
-// 将文件路径放入队列
-for (const auto& jsonPath : jsonFiles) {
-    jsonQueue.push(jsonPath);
-}
-```
-
-**改动后**：
-```cpp
-// 将JSON内容读入内存后放入队列
-for (const auto& jsonPath : jsonFiles) {
-    std::ifstream file(jsonPath);
-    std::string content((std::istreambuf_iterator<char>(file)),
-                       std::istreambuf_iterator<char>());
-    JsonTask task(provinceCode, std::move(content), jsonPath);
-    jsonTaskQueue.push(std::move(task));
-}
-```
-
----
-
-#### 9. 修改终止信号
-
-```cpp
-// 改动后：使用空JsonTask作为终止信号
-for (size_t i = 0; i < config.totalThreads; ++i) {
-    jsonTaskQueue.push(JsonTask());  // 空任务
-}
-```
-
----
-
-#### 10. 内存管理
-
-**队列内存占用**：
-```
-队列容量 = 240个任务
-每个任务 = ~150KB（JSON内容）
-峰值内存 = 240 × 150KB ≈ 36MB
-```
-
----
-
-#### 预期效果
-
-| 优化项 | 效果 |
-|--------|------|
-| 磁盘写入 | 减少100%（不写磁盘） |
-| 磁盘读取 | 减少50%（只读一次ZIP） |
-| 内存占用 | ~40MB（可控） |
-| CPU利用 | 24线程并行解析 |
-| 流水线 | 解压和处理并行 |
-
----
-
-#### 架构图
+#### 5. 架构图
 
 ```
 ┌─────────────────────────────────────────────────────────────┐
@@ -676,9 +571,9 @@ for (size_t i = 0; i < config.totalThreads; ++i) {
 └────────────────────┬──────────────────────────────────────┘
                      │
 ┌────────────────────▼──────────────────────────────────────┐
-│  JSON任务队列（240个任务）                                 │
-│   存储：JsonTask (provinceCode + content + filePath)        │
-│   内存占用：~36MB                                         │
+│  JSON任务队列（1200个任务）                               │
+│   存储：JsonTask (provinceCode + content + filePath)       │
+│   内存占用：~180MB（峰值）                                │
 └────────────────────┬──────────────────────────────────────┘
                      │
 ┌────────────────────▼──────────────────────────────────────┐
@@ -690,11 +585,9 @@ for (size_t i = 0; i < config.totalThreads; ++i) {
 
 ---
 
-**状态**：已完成，编译通过
+**状态**：✅ 已完成，编译通过
 
 ---
-
-## 2026-04-12
 
 ### 改动：JSON解析与存储优化（综合）
 
@@ -729,7 +622,7 @@ auto json_result = localParser.parse(content);
 
 **改动**：
 ```cpp
-// 改动前：创建临时string
+// 改动前：创建临时 string
 std::string cardId(cardIdView);
 
 // 改动后：直接使用string_view验证后构造
@@ -742,30 +635,9 @@ validCardIds.emplace_back(cardIdView);
 
 #### 3. 省份级容量预分配
 
-**文件**：`blacklist_checker.h`、`blacklist_checker.cpp`
-
 **新增方法**：
 ```cpp
 void BlacklistChecker::reserveProvinceCapacity(int provinceCode, size_t capacity);
-```
-
-**核心实现**：
-```cpp
-void BlacklistChecker::reserveProvinceCapacity(int provinceCode, size_t capacity) {
-    if (provinceCode < 0 || static_cast<size_t>(provinceCode) >= MAX_PROVINCE_CODE) {
-        return;
-    }
-    size_t avgPerType = capacity / 3;
-    for (size_t j = 0; j < 3; ++j) {
-        provinceShards[provinceCode].cards[j].reserve(avgPerType);
-    }
-}
-```
-
-**调用位置**：`zip_utils.cpp`解压线程中
-```cpp
-size_t totalCards = jsonCount * 1000 + 1000;  // 每JSON 1000条 + 1000冗余
-checker.reserveProvinceCapacity(provinceInfo.provinceCode, totalCards);
 ```
 
 **效果**：减少内存扩容开销，提升20-30%。
@@ -776,26 +648,6 @@ checker.reserveProvinceCapacity(provinceInfo.provinceCode, totalCards);
 
 **问题**：原实现按索引串行创建解压线程，小省份被大省份阻塞。
 
-**改动**：使用ThreadSafeQueue实现动态任务分配。
-```cpp
-// 创建省份任务队列
-ThreadSafeQueue<ProvinceZipInfo> provinceQueue;
-for (const auto& province : provinceZips) {
-    provinceQueue.push(province);
-}
-
-// 启动解压线程池
-for (size_t i = 0; i < config.extractThreads; ++i) {
-    extractThreads.emplace_back([&, i]() {
-        while (true) {
-            ProvinceZipInfo provinceInfo = provinceQueue.pop();
-            if (provinceInfo.provinceCode == 0) break; // 终止信号
-            // 处理省份...
-        }
-    });
-}
-```
-
 **效果**：8个解压线程始终有任务，小省份不再被阻塞。
 
 ---
@@ -803,31 +655,6 @@ for (size_t i = 0; i < config.extractThreads; ++i) {
 #### 5. 按省份独立排序
 
 **问题**：原实现每处理一个JSON文件就调用sortAll()对所有100个省份分片排序，严重性能浪费。
-
-**改动**：
-- 新增 `sortProvince(int provinceCode)` 方法
-- 新增省份统计跟踪
-- 消费者线程检测省份所有JSON处理完成后单独排序
-- 移除 `loadFromJsonFile` 中的 `sortAll()` 调用
-
-**新增方法**：
-```cpp
-void BlacklistChecker::sortProvince(int provinceCode) {
-    for (size_t typeIdx = 0; typeIdx < 3; ++typeIdx) {
-        std::sort(provinceShards[provinceCode].cards[typeIdx].begin(),
-                 provinceShards[provinceCode].cards[typeIdx].end());
-    }
-}
-```
-
-**省份统计**：
-```cpp
-struct ProvinceStats {
-    std::atomic<size_t> totalJsons = 0;
-    std::atomic<size_t> processedJsons = 0;
-};
-std::unordered_map<int, ProvinceStats> provinceStats;
-```
 
 **效果对比**：
 | 处理21个JSON | 优化前 | 优化后 |
@@ -840,108 +667,20 @@ std::unordered_map<int, ProvinceStats> provinceStats;
 
 ---
 
-#### 综合效果
-
-| 优化项 | 预期提升 |
-|--------|---------|
-| P0: 线程局部parser | 15-20% |
-| P1: string_view优化 | 10-15% |
-| 容量预分配 | 20-30% |
-| 动态任务队列 | 消除阻塞 |
-| 按省份独立排序 | 1000倍减少 |
-
-**状态**：已完成，编译通过
-
----
-
-### 改动：实现边解压边入队的流水线并行
-
-**文件**：`src/zip/zip_utils.cpp`
-
-**改动函数**：`processSingleProvinceParallel`
-
-**问题描述**：
-原实现中，生产者（解压线程）先完整解压所有文件到磁盘，然后才将JSON文件路径加入队列。消费者（解析线程）在此期间一直阻塞等待，导致生产者-消费者模式退化为串行执行。
-
-**改动内容**：
-1. 将 `extractor.extractAll(extractDestDir)` 改为 `extractor.extractAllWithCallback(extractDestDir, fileCallback)`
-2. 在回调函数 `fileCallback` 中直接入队已解压的JSON文件
-3. 消费者线程在解压进行时即可开始解析，无需等待全部解压完成
-
-**核心代码变更**：
-```cpp
-// 改动前：先完整解压，再入队（伪并行）
-if (extractor.extractAll(extractDestDir) != ZipExtractor::ZipResult::OK) { ... }
-extractor.close();
-// 解压完成后才入队
-for (const auto& fileName : allFiles) {
-    taskQueue.push(fullPath);
-}
-
-// 改动后：边解压边入队（真流水线）
-auto fileCallback = [&](const std::string& filePath) {
-    std::string fileName = filePath.substr(filePath.find_last_of("\\/") + 1);
-    if (fileName.length() > 5 && fileName.substr(fileName.find_last_of(".") + 1) == "json") {
-        std::string fullPath = extractDestDir + "\\" + fileName;
-        taskQueue.push(fullPath);  // 每解压完一个文件立即入队
-        producedCount++;
-    }
-};
-extractor.extractAllWithCallback(extractDestDir, fileCallback);  // 边解压边回调
-```
-
-**预期收益**：
-- 解压CPU与解析CPU可同时工作
-- 减少消费者线程等待时间
-- 加快整体处理速度
-
-**状态**：已完成，编译通过
-
----
-
-### 改动：修复边解压边入队中JSON文件过滤Bug
-
-**文件**：`src/zip/zip_utils.cpp`
-
-**改动函数**：`processSingleProvinceParallel` 中的 `fileCallback`
-
-**问题描述**：
-边解压边入队功能中，JSON文件过滤条件错误导致所有文件被忽略。
-
-**错误代码**：
-```cpp
-// 错误：对于 "20230620_44_1.json"
-fileName.substr(fileName.find_last_of(".") + 1) == "json"
-// find_last_of(".") 返回 15
-// substr(16) 返回 "son"（不是 "json"！）
-// "son" == "json" 为 FALSE！
-```
-
-**修复代码**：
-```cpp
-size_t dotPos = fileName.find_last_of(".");
-if (dotPos != std::string::npos && fileName.substr(dotPos + 1) == "json") {
-```
-
-**状态**：已完成，编译通过
+**状态**：✅ 已完成，编译通过
 
 ---
 
 ### 改动：实现省份分片数据结构
 
-**文件**：`include/blacklist_checker.h`、`src/core/blacklist_checker.cpp`
-
-**问题描述**：
-原实现中，所有省份共用一个 `unordered_map` 和一把全局锁 `cardMapMutex`，导致：
-- 加载时各省份串行（竞争全局锁）
-- 查询时锁竞争激烈
-- 排序时全局串行
+**文件**：
+- `include/blacklist_checker.h`
+- `src/core/blacklist_checker.cpp`
 
 **核心改动**：
 
 1. **新增数据结构**：
 ```cpp
-// 省份代码最大值（省级行政区划代码最大约65）
 static constexpr size_t MAX_PROVINCE_CODE = 100;
 
 struct ProvinceShard {
@@ -952,51 +691,29 @@ struct ProvinceShard {
 std::array<ProvinceShard, MAX_PROVINCE_CODE> provinceShards;
 ```
 
-2. **查询优化**（`isBlacklisted`）：
-```cpp
-// 改动前：全局锁遍历
-std::lock_guard<std::mutex> lock(cardMapMutex);
-auto prefixIt = cardMap.find(prefix);
-
-// 改动后：O(1)定位 + 分片锁
-size_t shardIdx = getShardIndex(provinceCode);  // provinceCode = 卡号前2位
-std::lock_guard<std::mutex> lock(provinceShards[shardIdx].mutex);
-```
-
-3. **添加优化**（`addBatch`）：
-```cpp
-// 改动后：按省份分片并行添加
-for (auto& [shardIdx, shardCards] : localByShard) {
-    threads.emplace_back([this, shardIdx, &shardCards]() {
-        std::lock_guard<std::mutex> lock(provinceShards[shardIdx].mutex);
-        // 添加到对应分片
-    });
-}
-```
-
-4. **排序优化**（`sortAll`）：
-```cpp
-// 改动后：分省并行排序
-for (size_t i = 0; i < MAX_PROVINCE_CODE; i += shardsPerThread) {
-    threads.emplace_back([this, i, endIdx]() {
-        for (size_t shardIdx = i; shardIdx < endIdx; ++shardIdx) {
-            std::lock_guard<std::mutex> lock(provinceShards[shardIdx].mutex);
-            // 排序该省数据
-        }
-    });
-}
-```
+2. **查询优化**：O(1)定位 + 分片锁
 
 **预期收益**：
 | 场景 | 改动前 | 改动后 |
 |-----|-------|-------|
-| 加载A省 & 加载B省 | 串行（竞争全局锁） | **并行**（各自锁各自省） |
-| 查询A省 & 查询B省 | 串行（竞争全局锁） | **并行**（各自锁各自省） |
+| 加载A省 & 加载B省 | 串行（竞争全局锁） | **并行** |
+| 查询A省 & 查询B省 | 串行（竞争全局锁） | **并行** |
 | 排序 | 全局串行 | **分省并行** |
 | 查询定位 | O(N) 遍历map | **O(1)** |
 
-**持久化兼容**：
-- 保存/加载逻辑已同步修改，使用省份代码作为分片索引
-- 文件格式保持不变（Header + IndexTable + Data）
+---
 
-**状态**：已完成，编译通过
+**状态**：✅ 已完成，编译通过
+
+---
+
+## 变更记录索引
+
+| 日期 | 版本 | 主要改动 |
+|-----|------|---------|
+| 2026-04-13 | v2026-04-13-2 | 内存流式处理优化、异常处理完善 |
+| 2026-04-12 | v2026-04-12 | 内存流式处理基础架构、省份分片数据结构 |
+
+---
+
+**文档更新时间**：2026-04-13
