@@ -44,5 +44,4 @@ include/rapidjson/
 # ========== 其他 ==========
 logs/
 scripts/
-docs/
 备份/
