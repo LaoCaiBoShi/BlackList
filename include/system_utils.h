@@ -46,6 +46,43 @@ struct ThreadConfig {
 };
 
 /**
+ * @brief 布隆过滤器精度级别
+ */
+enum class BloomFilterPrecision {
+    NORMAL = 0,      // 十万分之一 (10⁻⁵)
+    HIGH = 1,        // 百万分之一 (10⁻⁶) - 默认
+    ULTRA = 2       // 千万分之一 (10⁻⁷) - 不推荐，内存开销大
+};
+
+/**
+ * @brief 布隆过滤器配置结构体
+ */
+struct BloomFilterConfig {
+    BloomFilterPrecision precision;  // 精度级别
+    double falsePositiveRate;       // 误判率
+
+    // 精度级别对应的误判率
+    static double getFalsePositiveRate(BloomFilterPrecision precision) {
+        switch (precision) {
+            case BloomFilterPrecision::NORMAL:  return 0.00001;   // 10⁻⁵ 十万分之一
+            case BloomFilterPrecision::HIGH:  return 0.000001;  // 10⁻⁶ 百万分之一 (默认)
+            case BloomFilterPrecision::ULTRA:  return 0.0000001; // 10⁻⁷ 千万分之一
+            default: return 0.000001;
+        }
+    }
+
+    // 获取精度级别名称
+    static const char* getPrecisionName(BloomFilterPrecision precision) {
+        switch (precision) {
+            case BloomFilterPrecision::NORMAL:  return "NORMAL(十万分之一)";
+            case BloomFilterPrecision::HIGH:   return "HIGH(百万分之一)";
+            case BloomFilterPrecision::ULTRA:  return "ULTRA(千万分之一)";
+            default: return "UNKNOWN";
+        }
+    }
+};
+
+/**
  * @brief 计算最优线程配置
  * @param provinceCount 省份数量（默认31）
  * @return 线程配置

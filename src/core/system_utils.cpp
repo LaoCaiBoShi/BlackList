@@ -264,3 +264,34 @@ ThreadConfig getFallbackConfig() {
     config.queueSize = calculateOptimalQueueSize();  // 使用动态计算
     return config;
 }
+
+/**
+ * @brief 计算布隆过滤器配置
+ * @param precision 精度级别
+ * @param memoryMB 系统可用内存(MB)
+ * @return 布隆过滤器配置
+ */
+BloomFilterConfig calculateBloomFilterConfig(BloomFilterPrecision precision,
+                                             size_t memoryMB) {
+    BloomFilterConfig config;
+    config.precision = precision;
+    config.falsePositiveRate = BloomFilterConfig::getFalsePositiveRate(precision);
+
+    // 检查ULTRA模式内存限制
+    if (precision == BloomFilterPrecision::ULTRA) {
+        // ULTRA模式需要约750MB布隆过滤器内存
+        if (memoryMB < 2000) {
+            std::cerr << "[WARN] Memory " << memoryMB << "MB is too low for ULTRA precision, "
+                      << "downgrading to HIGH precision" << std::endl;
+            config.precision = BloomFilterPrecision::HIGH;
+            config.falsePositiveRate = 0.000001;
+        }
+    }
+
+    std::cout << "[BloomFilter Config] Precision: "
+              << BloomFilterConfig::getPrecisionName(config.precision)
+              << ", False Positive Rate: " << config.falsePositiveRate
+              << std::endl;
+
+    return config;
+}

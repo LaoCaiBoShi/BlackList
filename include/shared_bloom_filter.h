@@ -31,7 +31,7 @@ private:
 
 public:
     explicit ShardedBloomFilter(size_t expectedElements = 30000000,
-                                double falsePositiveRate = 0.00001);
+                                double falsePositiveRate = 0.000001);  // 默认百万分之一
 
     void add(const std::string& key);
     bool contains(const std::string& key) const;

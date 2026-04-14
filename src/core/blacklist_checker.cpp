@@ -26,7 +26,7 @@
  */
 BlacklistChecker::BlacklistChecker() {
     std::fill(versionInfo.begin(), versionInfo.end(), ' ');
-    LOG_DEBUG("BlacklistChecker created");
+    LOG_DEBUG("BlacklistChecker created with ShardedBloomFilter (default: HIGH precision, 10⁻⁶)");
 }
 
 /**
