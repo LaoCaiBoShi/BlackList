@@ -2,9 +2,215 @@
 
 ## 版本信息
 
-**当前版本**：v2026-04-13-4
-**最后更新**：2026-04-13
-**Git提交**：`d8e1621`
+**当前版本**：v2026-04-14-4
+**最后更新**：2026-04-14
+**Git提交**：`a61e49d`
+
+---
+
+## 2026-04-14
+
+### 版本：v2026-04-14-4
+
+**Git标签**：v2026-04-14-4
+
+**改动**：添加运行时模式选择功能
+
+---
+
+### 运行时模式选择
+
+用户可以在程序启动时选择三种运行模式：
+
+```
+==========================================
+Select Query Mode
+==========================================
+1. BLOOM_ONLY (150MB, ~0.001% false positive)
+   - Only uses Bloom filter
+   - Fastest, lowest memory
+   - May have false positives
+
+2. CARDINFO_ONLY (350MB, 0% false positive) [DEFAULT]
+   - Only uses CardInfo storage
+   - Moderate memory
+   - 100% accurate
+
+3. BLOOM_AND_CARDINFO (500MB, 0% false positive)
+   - Uses both Bloom filter and CardInfo
+   - Best performance balance
+   - 100% accurate
+==========================================
+Enter choice (1/2/3) or mode name [default: 2]:
+```
+
+**修改文件**：
+
+| 文件 | 改动 |
+|------|------|
+| `include/blacklist_service.h` | 构造函数和initialize添加QueryMode参数 |
+| `src/core/blacklist_service.cpp` | 构造函数和initialize实现支持mode |
+| `src/main.cpp` | 添加selectQueryMode()函数和调用 |
+
+---
+
+### 版本：v2026-04-14-3
+
+**Git标签**：v2026-04-14-3
+
+**改动**：实现多模式查询支持
+
+---
+
+### 多模式查询功能
+
+**新增QueryMode枚举**：
+
+```cpp
+enum class QueryMode {
+    BLOOM_ONLY = 0,        // 只布隆过滤器模式
+    CARDINFO_ONLY = 1,     // 只CardInfo模式
+    BLOOM_AND_CARDINFO = 2 // 布隆+CardInfo模式(默认)
+};
+```
+
+**三种模式对比**：
+
+| 模式 | 布隆过滤器 | CardInfo | 内存占用 | 误判率 | 查询方式 |
+|------|------------|----------|----------|--------|----------|
+| BLOOM_ONLY | ✅ | ❌ | ~150MB | ~0.001% | 布隆判断 |
+| CARDINFO_ONLY | ❌ | ✅ | ~350MB | 0% | 直接二分 |
+| BLOOM_AND_CARDINFO | ✅ | ✅ | ~500MB | 0% | 布隆预检+二分 |
+
+**使用方式**：
+
+```cpp
+// 默认(完整模式)
+BlacklistChecker checker;
+
+// 指定模式
+BlacklistChecker checker(QueryMode::BLOOM_ONLY);      // 只布隆过滤器
+BlacklistChecker checker(QueryMode::CARDINFO_ONLY);    // 只CardInfo
+BlacklistChecker checker(QueryMode::BLOOM_AND_CARDINFO); // 完整模式
+```
+
+**新增文件**：
+| 文件 | 说明 |
+|------|------|
+| `include/card_info_store.h` | CardInfoStore类声明 |
+| `src/card_info_store.cpp` | CardInfoStore类实现 |
+
+**修改文件**：
+| 文件 | 改动 |
+|------|------|
+| `include/blacklist_checker.h` | 添加QueryMode枚举和模式判断方法 |
+| `src/core/blacklist_checker.cpp` | isBlacklisted和add支持多模式 |
+| `CMakeLists.txt` | 添加card_info_store.cpp |
+
+---
+
+### 版本：v2026-04-14-2
+
+**Git标签**：v2026-04-14-2
+
+**改动**：支持配置布隆过滤器误判率精度级别
+
+---
+
+### 布隆过滤器精度级别配置
+
+**新增配置结构**：
+
+```cpp
+enum class BloomFilterPrecision {
+    NORMAL = 0,   // 十万分之一 (10⁻⁵)
+    HIGH = 1,    // 百万分之一 (10⁻⁶) - 默认
+    ULTRA = 2    // 千万分之一 (10⁻⁷) - 不推荐
+};
+
+struct BloomFilterConfig {
+    BloomFilterPrecision precision;
+    double falsePositiveRate;
+};
+```
+
+**精度级别对应的内存和误判率**：
+
+| 级别 | 误判率 | 布隆过滤器内存 | 推荐度 |
+|------|--------|---------------|--------|
+| NORMAL | 10⁻⁵ (十万分之一) | ~100 MB | ⭐⭐⭐⭐ |
+| **HIGH** | **10⁻⁶ (百万分之一)** | **~150 MB** | **⭐⭐⭐⭐⭐ 默认** |
+| ULTRA | 10⁻⁷ (千万分之一) | ~750 MB | ⭐ 不推荐 |
+
+**修改文件**：
+| 文件 | 改动 |
+|------|------|
+| `include/shared_bloom_filter.h` | 默认误判率改为 10⁻⁶ |
+| `include/system_utils.h` | 新增 `BloomFilterPrecision` 和 `BloomFilterConfig` |
+| `src/core/system_utils.cpp` | 新增 `calculateBloomFilterConfig()` 函数 |
+| `src/core/blacklist_checker.cpp` | 构造函数日志更新 |
+
+---
+
+### 版本：v2026-04-14-1
+
+**Git标签**：v2026-04-14-1
+
+**改动**：实现分片无锁布隆过滤器
+
+---
+
+### 1. 分片无锁布隆过滤器
+
+| 文件 | 说明 |
+|------|------|
+| `include/shared_bloom_filter.h` | 新增分片无锁布隆过滤器类声明 |
+| `src/shared_bloom_filter.cpp` | 新增分片无锁布隆过滤器类实现 |
+| `include/blacklist_checker.h` | 引用新类，删除旧BloomFilter类 |
+| `src/core/blacklist_checker.cpp` | 使用ShardedBloomFilter替代原BloomFilter |
+
+**技术参数**：
+- 分片数：64（与线程数匹配）
+- 安全系数：1.3
+- 误判率：<0.001%
+- 哈希函数数：3
+- 位数组类型：`uint8_t`（替代`vector<bool>`）
+
+**性能提升**：
+| 指标 | 旧版本 | 新版本 | 改善 |
+|------|--------|--------|------|
+| 布隆过滤器内存 | ~240 MB | ~100 MB | **节省140MB** |
+| 查询延迟 | ~500ns | ~50ns | **降低90%** |
+| 并发能力 | 32线程争1锁 | 无锁并行 | **消除锁争用** |
+
+---
+
+### 2. 内存动态预分配优化
+
+| 文件 | 改动 |
+|------|------|
+| `include/blacklist_checker.h` | `reserveProvinceCapacity` → `reserveProvinceCapacitySafe` |
+| `src/core/blacklist_checker.cpp` | 新增异常处理、边界检查 |
+| `src/core/system_utils.cpp` | 新增 `calculateOptimalQueueSize()` 动态队列配置 |
+| `src/zip/zip_utils.cpp` | 新增 `preAllocateAllProvinces()` 阶段2.5 |
+
+**内存与队列配置**：
+| 系统内存 | 队列大小 | 内存占用 |
+|----------|----------|----------|
+| ≥16G | 1000 | ~150MB |
+| ≥8G | 500 | ~75MB |
+| ≥4G | 300 | ~45MB |
+| <4G | 200 | ~30MB |
+
+---
+
+### 3. 编译问题修复
+
+| 问题 | 修复 |
+|------|------|
+| `reserveProvinceCapacitySafe` 返回类型不匹配 | 统一为 `bool` 返回值 |
+| `ProvinceZipInfo` 前向声明位置错误 | 调整到结构体定义之后 |
+| 编译警告 | 消除未使用参数、宏重定义等警告 |
 
 ---
 

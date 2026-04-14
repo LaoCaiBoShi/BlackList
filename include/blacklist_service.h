@@ -30,6 +30,7 @@ public:
 
     bool initialize(const std::string& zipPath, QueryMode mode = QueryMode::CARDINFO_ONLY);
     bool isBlacklisted(const std::string& cardId);
+    QueryResult checkCard(const std::string& cardId);
     Status getStatus() const;
     std::string getStatusString() const;
     std::string getVersionInfo() const;

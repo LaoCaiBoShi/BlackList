@@ -32,6 +32,33 @@ enum class QueryMode {
     BLOOM_AND_CARDINFO = 2 // 布隆+CardInfo模式(默认)
 };
 
+/**
+ * @brief 查询方法枚举
+ * 
+ * 表示在查询过程中使用的方法：
+ * - BLOOM_FAST_REJECT: 布隆过滤器快速拒绝（不在布隆中）
+ * - BLOOM_CONTAINED: 在布隆过滤器中（可能误判）
+ * - CARDINFO_EXACT: CardInfo精确查询确认
+ */
+enum class QueryMethod {
+    BLOOM_FAST_REJECT = 0,   // 布隆过滤器快速拒绝（确定不在黑名单）
+    BLOOM_CONTAINED = 1,     // 在布隆过滤器中（需要精确确认）
+    CARDINFO_EXACT = 2       // CardInfo精确确认（最终结果）
+};
+
+/**
+ * @brief 查询结果结构体
+ * 
+ * 包含查询的最终结果和使用的查询方法，用于调试和日志分析
+ */
+struct QueryResult {
+    bool isBlacklisted;      // 是否在黑名单中
+    QueryMethod method;       // 使用的查询方法
+
+    QueryResult() : isBlacklisted(false), method(QueryMethod::BLOOM_FAST_REJECT) {}
+    QueryResult(bool result, QueryMethod queryMethod) : isBlacklisted(result), method(queryMethod) {}
+};
+
 class BlacklistChecker {
     friend class PersistReader;
 
@@ -214,6 +241,9 @@ public:
     
     // 检查是否在黑名单
     bool isBlacklisted(const std::string& cardId);
+
+    // 检查是否在黑名单并返回详细结果（包含查询方法）
+    QueryResult checkCard(const std::string& cardId);
     
     // 获取黑名单大小
     size_t size() const;

@@ -68,6 +68,10 @@ bool BlacklistService::isBlacklisted(const std::string& cardId) {
     return checker_->isBlacklisted(cardId);
 }
 
+QueryResult BlacklistService::checkCard(const std::string& cardId) {
+    return checker_->checkCard(cardId);
+}
+
 BlacklistService::Status BlacklistService::getStatus() const {
     return status_.load();
 }
