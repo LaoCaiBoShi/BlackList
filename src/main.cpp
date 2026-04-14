@@ -15,6 +15,43 @@
 #elif defined(__linux__)
 #endif
 
+QueryMode selectQueryMode() {
+    std::cout << "\n==========================================" << std::endl;
+    std::cout << "Select Query Mode" << std::endl;
+    std::cout << "==========================================" << std::endl;
+    std::cout << "1. BLOOM_ONLY (150MB, ~0.001% false positive)" << std::endl;
+    std::cout << "   - Only uses Bloom filter" << std::endl;
+    std::cout << "   - Fastest, lowest memory" << std::endl;
+    std::cout << "   - May have false positives" << std::endl;
+    std::cout << std::endl;
+    std::cout << "2. CARDINFO_ONLY (350MB, 0% false positive) [DEFAULT]" << std::endl;
+    std::cout << "   - Only uses CardInfo storage" << std::endl;
+    std::cout << "   - Moderate memory" << std::endl;
+    std::cout << "   - 100% accurate" << std::endl;
+    std::cout << std::endl;
+    std::cout << "3. BLOOM_AND_CARDINFO (500MB, 0% false positive)" << std::endl;
+    std::cout << "   - Uses both Bloom filter and CardInfo" << std::endl;
+    std::cout << "   - Best performance balance" << std::endl;
+    std::cout << "   - 100% accurate" << std::endl;
+    std::cout << "==========================================" << std::endl;
+    std::cout << "Enter choice (1/2/3) or mode name [default: 2]: ";
+
+    std::string input;
+    std::getline(std::cin, input);
+    input.erase(0, input.find_first_not_of(" \t\r\n"));
+
+    if (input.empty() || input == "2" || input == "cardinfo" || input == "CARDINFO_ONLY") {
+        return QueryMode::CARDINFO_ONLY;
+    } else if (input == "1" || input == "bloom" || input == "BLOOM_ONLY") {
+        return QueryMode::BLOOM_ONLY;
+    } else if (input == "3" || input == "full" || input == "BLOOM_AND_CARDINFO") {
+        return QueryMode::BLOOM_AND_CARDINFO;
+    } else {
+        std::cout << "Invalid input, using default: CARDINFO_ONLY" << std::endl;
+        return QueryMode::CARDINFO_ONLY;
+    }
+}
+
 void queryCardLoop(BlacklistService& service) {
     std::cout << "\n==========================================" << std::endl;
     std::cout << "Blacklist Query Mode (Console)" << std::endl;
@@ -60,10 +97,13 @@ void queryCardLoop(BlacklistService& service) {
         }
 
         if (input.length() == 20) {
+            LOG_INFO("Card query request: %.20s", input.c_str());
             bool isBlacklisted = service.isBlacklisted(input);
             std::cout << "Result: " << (isBlacklisted ? "BLACKLISTED" : "NOT BLACKLISTED") << std::endl;
+            LOG_INFO("Card query result: %.20s -> %s", input.c_str(), isBlacklisted ? "BLACKLISTED" : "NOT BLACKLISTED");
         } else {
             std::cout << "Invalid card ID: must be 20 digits" << std::endl;
+            LOG_WARN("Invalid card ID format: length=%zu", input.length());
         }
     }
 }
@@ -112,8 +152,40 @@ int main(int argc, char* argv[]) {
             std::cout << "  C:\\Users\\Admin\\Downloads\\data.zip" << std::endl;
             std::cout << "==========================================" << std::endl;
         } else {
+            QueryMode mode = selectQueryMode();
+
+            const char* modeName[] = {"BLOOM_ONLY", "CARDINFO_ONLY", "BLOOM_AND_CARDINFO"};
+            std::cout << "Selected mode: " << modeName[static_cast<int>(mode)] << std::endl;
+            LOG_INFO("User selected mode: %s", modeName[static_cast<int>(mode)]);
+
             LOG_INFO("File validation passed: %s", zipPath.c_str());
-            break;
+            LOG_INFO("Initializing BlacklistService...");
+            BlacklistService service(mode);
+            bool initSuccess = service.initialize(zipPath, mode);
+
+            std::cout << "\n==========================================" << std::endl;
+            std::cout << "Initialization Result" << std::endl;
+            std::cout << "==========================================" << std::endl;
+            std::cout << "Status: " << service.getStatusString() << std::endl;
+            std::cout << "Loaded count: " << service.getBlacklistSize() << std::endl;
+
+            if (initSuccess && service.getBlacklistSize() > 0) {
+                std::cout << "\nBlacklist loaded successfully!" << std::endl;
+                LOG_INFO("BlacklistService initialized successfully, records: %lld", (long long)service.getBlacklistSize());
+                queryCardLoop(service);
+            } else {
+                std::cout << "\nInitialization failed. Exiting..." << std::endl;
+                std::cout << "Error: " << service.getLastError() << std::endl;
+                LOG_ERROR("Initialization failed: %s", service.getLastError().c_str());
+                return 1;
+            }
+
+            auto endTime = std::chrono::steady_clock::now();
+            auto duration = std::chrono::duration_cast<std::chrono::milliseconds>(endTime - startTime).count();
+            LOG_INFO("Program exiting normally, total runtime: %lld ms", (long long)duration);
+            std::cout << "Total runtime: " << duration << " ms" << std::endl;
+
+            return 0;
         }
 
         std::cout << "\nPlease enter a valid ZIP file path (or 'quit' to exit): ";
@@ -133,32 +205,4 @@ int main(int argc, char* argv[]) {
             return 0;
         }
     }
-
-    LOG_INFO("Initializing BlacklistService...");
-    BlacklistService service;
-    bool initSuccess = service.initialize(zipPath);
-
-    std::cout << "\n==========================================" << std::endl;
-    std::cout << "Initialization Result" << std::endl;
-    std::cout << "==========================================" << std::endl;
-    std::cout << "Status: " << service.getStatusString() << std::endl;
-    std::cout << "Loaded count: " << service.getBlacklistSize() << std::endl;
-
-    if (initSuccess && service.getBlacklistSize() > 0) {
-        std::cout << "\nBlacklist loaded successfully!" << std::endl;
-        LOG_INFO("BlacklistService initialized successfully, records: %lld", (long long)service.getBlacklistSize());
-        queryCardLoop(service);
-    } else {
-        std::cout << "\nInitialization failed. Exiting..." << std::endl;
-        std::cout << "Error: " << service.getLastError() << std::endl;
-        LOG_ERROR("Initialization failed: %s", service.getLastError().c_str());
-        return 1;
-    }
-
-    auto endTime = std::chrono::steady_clock::now();
-    auto duration = std::chrono::duration_cast<std::chrono::milliseconds>(endTime - startTime).count();
-    LOG_INFO("Program exiting normally, total runtime: %lld ms", (long long)duration);
-    std::cout << "Total runtime: " << duration << " ms" << std::endl;
-
-    return 0;
 }

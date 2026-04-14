@@ -25,10 +25,10 @@ public:
         ERROR
     };
 
-    BlacklistService();
+    explicit BlacklistService(QueryMode mode = QueryMode::CARDINFO_ONLY);
     ~BlacklistService();
 
-    bool initialize(const std::string& zipPath);
+    bool initialize(const std::string& zipPath, QueryMode mode = QueryMode::CARDINFO_ONLY);
     bool isBlacklisted(const std::string& cardId);
     Status getStatus() const;
     std::string getStatusString() const;

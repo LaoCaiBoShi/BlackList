@@ -9,17 +9,19 @@
 #include <iostream>
 #include <chrono>
 
-BlacklistService::BlacklistService()
+BlacklistService::BlacklistService(QueryMode mode)
     : status_(Status::UNINITIALIZED) {
-    checker_ = std::make_unique<BlacklistChecker>();
-    LOG_DEBUG("BlacklistService created");
+    checker_ = std::make_unique<BlacklistChecker>(mode);
+    const char* modeName[] = {"BLOOM_ONLY", "CARDINFO_ONLY", "BLOOM_AND_CARDINFO"};
+    std::cout << "[BlacklistService] Created with mode: " << modeName[static_cast<int>(mode)] << std::endl;
+    LOG_DEBUG("BlacklistService created with mode: %s", modeName[static_cast<int>(mode)]);
 }
 
 BlacklistService::~BlacklistService() {
     LOG_DEBUG("BlacklistService destroyed");
 }
 
-bool BlacklistService::initialize(const std::string& zipPath) {
+bool BlacklistService::initialize(const std::string& zipPath, QueryMode mode) {
     auto startTime = std::chrono::steady_clock::now();
 
     std::cout << "[BlacklistService] Loading from ZIP synchronously..." << std::endl;
