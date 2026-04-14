@@ -2,13 +2,78 @@
 
 ## 版本信息
 
-**当前版本**：v2026-04-14-4
+**当前版本**：v2026-04-14-5
 **最后更新**：2026-04-14
-**Git提交**：`a61e49d`
+**Git提交**：`ccefec7`
 
 ---
 
 ## 2026-04-14
+
+### 版本：v2026-04-14-5
+
+**Git标签**：v2026-04-14-5
+
+**改动**：添加查询结果显示查询方法信息
+
+---
+
+### 查询结果显示查询方法
+
+在查询黑名单时，显示是通过哪种方式查询的：
+
+```
+> 44011234567890123456
+Result: BLACKLISTED
+Method: CARDINFO精确确认
+```
+
+**新增枚举和结构体**：
+
+```cpp
+enum class QueryMethod {
+    BLOOM_FAST_REJECT = 0,   // 布隆过滤器快速拒绝（确定不在黑名单）
+    BLOOM_CONTAINED = 1,     // 在布隆过滤器中（需要精确确认）
+    CARDINFO_EXACT = 2       // CardInfo精确确认（最终结果）
+};
+
+struct QueryResult {
+    bool isBlacklisted;
+    QueryMethod method;
+    QueryResult(bool result, QueryMethod queryMethod)
+        : isBlacklisted(result), method(queryMethod) {}
+};
+```
+
+**查询方法说明**：
+
+| 查询方法 | 含义 | 适用场景 |
+|----------|------|----------|
+| BLOOM快速拒绝 | 布隆过滤器判断确定不在黑名单 | BLOOM_AND_CARDINFO模式快速路径 |
+| BLOOM可能命中 | 布隆过滤器判断可能在黑名单中（存在误判） | BLOOM_ONLY模式 |
+| CARDINFO精确确认 | CardInfo精确查询确认 | 所有模式下的最终确认 |
+
+**新增方法**：
+
+```cpp
+// BlacklistChecker 新增方法
+QueryResult checkCard(const std::string& cardId);
+
+// BlacklistService 新增方法
+QueryResult checkCard(const std::string& cardId);
+```
+
+**修改文件**：
+
+| 文件 | 改动 |
+|------|------|
+| `include/blacklist_checker.h` | 新增QueryMethod枚举和QueryResult结构体，添加checkCard方法声明 |
+| `src/core/blacklist_checker.cpp` | 实现checkCard方法返回QueryResult |
+| `include/blacklist_service.h` | 添加checkCard方法声明 |
+| `src/core/blacklist_service.cpp` | 实现checkCard方法封装 |
+| `src/main.cpp` | 查询循环输出Method信息 |
+
+---
 
 ### 版本：v2026-04-14-4
 
