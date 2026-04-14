@@ -99,15 +99,29 @@ void queryCardLoop(BlacklistService& service) {
         if (input.length() == 20) {
             LOG_INFO("Card query request: %.20s", input.c_str());
             QueryResult result = service.checkCard(input);
-            std::cout << "Result: " << (result.isBlacklisted ? "BLACKLISTED" : "NOT BLACKLISTED") << std::endl;
 
-            const char* methodNames[] = {"BLOOM快速拒绝", "BLOOM可能命中", "CARDINFO精确确认"};
-            std::cout << "Method: " << methodNames[static_cast<int>(result.method)] << std::endl;
+            const char* modeTag;
+            switch (result.method) {
+                case QueryMethod::BLOOM_FAST_REJECT:
+                    modeTag = "(BLOOM_FAST_REJECT)";
+                    break;
+                case QueryMethod::BLOOM_CONTAINED:
+                    modeTag = "(BLOOM_ONLY)";
+                    break;
+                case QueryMethod::CARDINFO_EXACT:
+                default:
+                    modeTag = "(CARDINFO)";
+                    break;
+            }
 
-            LOG_INFO("Card query result: %.20s -> %s, method: %s",
+            std::cout << "Result " << modeTag << ": "
+                      << (result.isBlacklisted ? "BLACKLISTED" : "NOT BLACKLISTED")
+                      << std::endl;
+
+            LOG_INFO("Card query result: %.20s -> %s %s",
                      input.c_str(),
                      result.isBlacklisted ? "BLACKLISTED" : "NOT BLACKLISTED",
-                     methodNames[static_cast<int>(result.method)]);
+                     modeTag);
         } else {
             std::cout << "Invalid card ID: must be 20 digits" << std::endl;
             LOG_WARN("Invalid card ID format: length=%zu", input.length());
