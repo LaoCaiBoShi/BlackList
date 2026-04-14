@@ -24,9 +24,33 @@
 /**
  * @brief 构造函数
  */
-BlacklistChecker::BlacklistChecker() {
+BlacklistChecker::BlacklistChecker(QueryMode mode) : queryMode_(mode) {
     std::fill(versionInfo.begin(), versionInfo.end(), ' ');
-    LOG_DEBUG("BlacklistChecker created with ShardedBloomFilter (default: HIGH precision, 10⁻⁶)");
+
+    const char* modeName;
+    switch (mode) {
+        case QueryMode::BLOOM_ONLY:
+            modeName = "BLOOM_ONLY";
+            break;
+        case QueryMode::CARDINFO_ONLY:
+            modeName = "CARDINFO_ONLY";
+            break;
+        case QueryMode::BLOOM_AND_CARDINFO:
+        default:
+            modeName = "BLOOM_AND_CARDINFO";
+            break;
+    }
+
+    std::cout << "[BlacklistChecker] Created with mode: " << modeName
+              << " (default: HIGH precision, 10⁻⁶)" << std::endl;
+}
+
+void BlacklistChecker::setQueryMode(QueryMode mode) {
+    if (size() > 0) {
+        std::cerr << "[ERROR] Cannot change query mode after data loaded" << std::endl;
+        return;
+    }
+    queryMode_ = mode;
 }
 
 /**
@@ -114,11 +138,33 @@ void BlacklistChecker::add(const std::string& cardId) {
 
     CardInfo cardInfo(year, week, innerId);
 
-    size_t shardIdx = getShardIndex(provinceCode);
-    std::lock_guard<std::mutex> lock(provinceShards[shardIdx].mutex);
-    provinceShards[shardIdx].cards[getTypeIndex(type)].push_back(cardInfo);
+    // 根据模式决定存储策略
+    switch (queryMode_) {
+        case QueryMode::BLOOM_ONLY:
+            // 只添加布隆过滤器
+            bloomFilter.add(cardId);
+            break;
 
-    bloomFilter.add(cardId);
+        case QueryMode::CARDINFO_ONLY:
+            // 只添加CardInfo存储
+            {
+                size_t shardIdx = getShardIndex(provinceCode);
+                std::lock_guard<std::mutex> lock(provinceShards[shardIdx].mutex);
+                provinceShards[shardIdx].cards[getTypeIndex(type)].push_back(cardInfo);
+            }
+            break;
+
+        case QueryMode::BLOOM_AND_CARDINFO:
+        default:
+            // 添加到两者
+            {
+                size_t shardIdx = getShardIndex(provinceCode);
+                std::lock_guard<std::mutex> lock(provinceShards[shardIdx].mutex);
+                provinceShards[shardIdx].cards[getTypeIndex(type)].push_back(cardInfo);
+            }
+            bloomFilter.add(cardId);
+            break;
+    }
 }
 
 /**
@@ -199,12 +245,6 @@ bool BlacklistChecker::isBlacklisted(const std::string& cardId) {
 
     LOG_DEBUG("isBlacklisted check: %.4s****, length=%zu", cardId.c_str(), cardId.length());
 
-    if (!bloomFilter.contains(cardId)) {
-        LOG_DEBUG("isBlacklisted: %.4s**** - Bloom filter check: NOT IN BLOOM (fast reject)", cardId.c_str());
-        return false;
-    }
-    LOG_DEBUG("isBlacklisted: %.4s**** - Bloom filter check: IN BLOOM (need precise check)", cardId.c_str());
-
     unsigned short provinceCode = getProvinceCode(cardId);
     unsigned short type = getCardType(cardId);
     unsigned short year = getYear(cardId);
@@ -212,23 +252,47 @@ bool BlacklistChecker::isBlacklisted(const std::string& cardId) {
     std::string innerId = getInnerId(cardId);
     size_t typeIdx = getTypeIndex(type);
 
-    LOG_DEBUG("isBlacklisted: %.4s**** - province=%u, type=%u, year=%u, week=%u, typeIdx=%zu",
-              cardId.c_str(), provinceCode, type, year, week, typeIdx);
+    switch (queryMode_) {
+        case QueryMode::BLOOM_ONLY:
+            return bloomFilter.contains(cardId);
 
-    CardInfo cardInfo(year, week, innerId);
+        case QueryMode::CARDINFO_ONLY:
+            {
+                CardInfo cardInfo(year, week, innerId);
+                size_t shardIdx = getShardIndex(provinceCode);
+                std::lock_guard<std::mutex> lock(provinceShards[shardIdx].mutex);
+                const auto& cards = provinceShards[shardIdx].cards[typeIdx];
+                return std::binary_search(cards.begin(), cards.end(), cardInfo);
+            }
 
-    size_t shardIdx = getShardIndex(provinceCode);
-    LOG_DEBUG("isBlacklisted: %.4s**** - shardIdx=%zu, lock acquired", cardId.c_str(), shardIdx);
+        case QueryMode::BLOOM_AND_CARDINFO:
+        default:
+            {
+                if (!bloomFilter.contains(cardId)) {
+                    LOG_DEBUG("isBlacklisted: %.4s**** - Bloom filter check: NOT IN BLOOM (fast reject)", cardId.c_str());
+                    return false;
+                }
+                LOG_DEBUG("isBlacklisted: %.4s**** - Bloom filter check: IN BLOOM (need precise check)", cardId.c_str());
 
-    std::lock_guard<std::mutex> lock(provinceShards[shardIdx].mutex);
+                LOG_DEBUG("isBlacklisted: %.4s**** - province=%u, type=%u, year=%u, week=%u, typeIdx=%zu",
+                          cardId.c_str(), provinceCode, type, year, week, typeIdx);
 
-    const auto& cards = provinceShards[shardIdx].cards[typeIdx];
-    bool found = std::binary_search(cards.begin(), cards.end(), cardInfo);
+                CardInfo cardInfo(year, week, innerId);
 
-    LOG_DEBUG("isBlacklisted: %.4s**** - binary_search result: %s, cards in shard: %zu",
-              cardId.c_str(), found ? "FOUND" : "NOT FOUND", cards.size());
+                size_t shardIdx = getShardIndex(provinceCode);
+                LOG_DEBUG("isBlacklisted: %.4s**** - shardIdx=%zu, lock acquired", cardId.c_str(), shardIdx);
 
-    return found;
+                std::lock_guard<std::mutex> lock(provinceShards[shardIdx].mutex);
+
+                const auto& cards = provinceShards[shardIdx].cards[typeIdx];
+                bool found = std::binary_search(cards.begin(), cards.end(), cardInfo);
+
+                LOG_DEBUG("isBlacklisted: %.4s**** - binary_search result: %s, cards in shard: %zu",
+                          cardId.c_str(), found ? "FOUND" : "NOT FOUND", cards.size());
+
+                return found;
+            }
+    }
 }
 
 /**

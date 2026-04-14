@@ -13,9 +13,24 @@
 #include <atomic>
 
 #include "shared_bloom_filter.h"
+#include "card_info_store.h"
 
 // 前向声明，避免循环依赖
 class PersistReader;
+
+/**
+ * @brief 查询模式枚举
+ * 
+ * 支持三种运行模式：
+ * - BLOOM_ONLY: 只使用布隆过滤器，适合内存极度受限场景，有误判
+ * - CARDINFO_ONLY: 只使用CardInfo存储，无误判，内存适中
+ * - BLOOM_AND_CARDINFO: 布隆过滤器+CardInfo，最佳性能平衡(默认)
+ */
+enum class QueryMode {
+    BLOOM_ONLY = 0,        // 只布隆过滤器模式
+    CARDINFO_ONLY = 1,     // 只CardInfo模式
+    BLOOM_AND_CARDINFO = 2 // 布隆+CardInfo模式(默认)
+};
 
 class BlacklistChecker {
     friend class PersistReader;
@@ -30,10 +45,8 @@ public:
         CardInfo() : year_week(0), innerId(0) {}
 
         CardInfo(unsigned short y, unsigned short w, const std::string& innerIdStr) {
-            // 编码year和week到year_week
             year_week = ((y / 10) << 12) | ((y % 10) << 8) | ((w / 10) << 4) | (w % 10);
-            
-            // 编码innerId（11-20位）到位压缩格式
+
             innerId = 0;
             for (size_t i = 0; i < 10; i++) {
                 if (i < innerIdStr.length()) {
@@ -42,18 +55,15 @@ public:
                 }
             }
         }
-        
-        // 获取year
+
         unsigned short getYear() const {
             return ((year_week >> 12) & 0x0F) * 10 + ((year_week >> 8) & 0x0F);
         }
-        
-        // 获取week
+
         unsigned short getWeek() const {
             return ((year_week >> 4) & 0x0F) * 10 + (year_week & 0x0F);
         }
-        
-        // 获取innerId字符串
+
         std::string getInnerIdStr() const {
             std::string result;
             for (int i = 0; i < 10; ++i) {
@@ -62,19 +72,18 @@ public:
             }
             return result;
         }
-        
-        // 比较运算符，用于排序和查找
+
         bool operator<(const CardInfo& other) const {
             if (year_week != other.year_week) {
                 return year_week < other.year_week;
             }
             return innerId < other.innerId;
         }
-        
+
         bool operator==(const CardInfo& other) const {
             return year_week == other.year_week && innerId == other.innerId;
         }
-        
+
         bool operator!=(const CardInfo& other) const {
             return !(*this == other);
         }
@@ -110,6 +119,9 @@ public:
 
     // 布隆过滤器，用于快速判断卡片是否可能在黑名单中（分片无锁版本）
     ShardedBloomFilter bloomFilter;
+
+    // 查询模式
+    QueryMode queryMode_{QueryMode::BLOOM_AND_CARDINFO};
 
     // 黑名单版本信息（6字节）
     std::array<char, 6> versionInfo;
@@ -162,7 +174,28 @@ public:
     
 public:
     // 构造函数
-    BlacklistChecker();
+    // @param mode 查询模式，默认BLOOM_AND_CARDINFO
+    explicit BlacklistChecker(QueryMode mode = QueryMode::BLOOM_AND_CARDINFO);
+
+    // 设置查询模式（在数据加载前调用）
+    void setQueryMode(QueryMode mode);
+
+    // 获取当前查询模式
+    QueryMode getQueryMode() const {
+        return queryMode_;
+    }
+
+    // 获取布隆过滤器是否启用
+    bool isBloomFilterEnabled() const {
+        return queryMode_ == QueryMode::BLOOM_ONLY ||
+               queryMode_ == QueryMode::BLOOM_AND_CARDINFO;
+    }
+
+    // 获取CardInfo存储是否启用
+    bool isCardInfoStoreEnabled() const {
+        return queryMode_ == QueryMode::CARDINFO_ONLY ||
+               queryMode_ == QueryMode::BLOOM_AND_CARDINFO;
+    }
     
     // 加载黑名单
     bool loadFromFile(const std::string& filename);

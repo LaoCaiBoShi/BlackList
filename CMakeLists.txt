@@ -53,6 +53,7 @@ set(BLACKLIST_SOURCES
     src/core/system_utils.cpp
     src/core/log_manager.cpp
     src/shared_bloom_filter.cpp
+    src/card_info_store.cpp
     src/zip/zip_basic.cpp
     src/zip/zip_utils.cpp
     src/zip/ZipExtractor.cpp
