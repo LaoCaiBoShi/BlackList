@@ -197,9 +197,13 @@ void BlacklistChecker::remove(const std::string& cardId) {
 bool BlacklistChecker::isBlacklisted(const std::string& cardId) {
     if (cardId.length() != 20) return false;
 
+    LOG_DEBUG("isBlacklisted check: %.4s****, length=%zu", cardId.c_str(), cardId.length());
+
     if (!bloomFilter.contains(cardId)) {
+        LOG_DEBUG("isBlacklisted: %.4s**** - Bloom filter check: NOT IN BLOOM (fast reject)", cardId.c_str());
         return false;
     }
+    LOG_DEBUG("isBlacklisted: %.4s**** - Bloom filter check: IN BLOOM (need precise check)", cardId.c_str());
 
     unsigned short provinceCode = getProvinceCode(cardId);
     unsigned short type = getCardType(cardId);
@@ -208,13 +212,23 @@ bool BlacklistChecker::isBlacklisted(const std::string& cardId) {
     std::string innerId = getInnerId(cardId);
     size_t typeIdx = getTypeIndex(type);
 
+    LOG_DEBUG("isBlacklisted: %.4s**** - province=%u, type=%u, year=%u, week=%u, typeIdx=%zu",
+              cardId.c_str(), provinceCode, type, year, week, typeIdx);
+
     CardInfo cardInfo(year, week, innerId);
 
     size_t shardIdx = getShardIndex(provinceCode);
+    LOG_DEBUG("isBlacklisted: %.4s**** - shardIdx=%zu, lock acquired", cardId.c_str(), shardIdx);
+
     std::lock_guard<std::mutex> lock(provinceShards[shardIdx].mutex);
 
     const auto& cards = provinceShards[shardIdx].cards[typeIdx];
-    return std::binary_search(cards.begin(), cards.end(), cardInfo);
+    bool found = std::binary_search(cards.begin(), cards.end(), cardInfo);
+
+    LOG_DEBUG("isBlacklisted: %.4s**** - binary_search result: %s, cards in shard: %zu",
+              cardId.c_str(), found ? "FOUND" : "NOT FOUND", cards.size());
+
+    return found;
 }
 
 /**
@@ -500,17 +514,62 @@ void BlacklistChecker::reserveCapacity(size_t additionalRecords) {
     std::cout << "Reserved capacity for " << additionalRecords << " additional records" << std::endl;
 }
 
-void BlacklistChecker::reserveProvinceCapacity(int provinceCode, size_t capacity) {
+void BlacklistChecker::reserveProvinceCapacitySafe(int provinceCode, 
+                                                    size_t jsonFileCount,
+                                                    size_t cardsPerJson,
+                                                    double bufferFactor) {
     if (provinceCode < 0 || static_cast<size_t>(provinceCode) >= MAX_PROVINCE_CODE) {
+        std::cerr << "[ERROR] Invalid province code: " << provinceCode 
+                  << " (valid range: 0-" << (MAX_PROVINCE_CODE - 1) << ")" << std::endl;
         return;
     }
-
-    size_t avgPerType = capacity / 3;
-    for (size_t j = 0; j < 3; ++j) {
-        provinceShards[provinceCode].cards[j].reserve(avgPerType);
+    
+    if (jsonFileCount == 0) {
+        std::cout << "[WARN] Province " << provinceCode << " has 0 JSON files, skipping pre-allocation" << std::endl;
+        return;
     }
-
-    LOG_DEBUG("Reserved capacity for province %d: %zu cards", provinceCode, capacity);
+    
+    double estimated = static_cast<double>(jsonFileCount) * 
+                       static_cast<double>(cardsPerJson) * 
+                       bufferFactor;
+    
+    const size_t MAX_REASONABLE_CARDS = 10000000;
+    if (estimated > MAX_REASONABLE_CARDS) {
+        std::cerr << "[WARN] Province " << provinceCode << " estimated " 
+                  << estimated << " cards exceeds limit, capping" << std::endl;
+        estimated = MAX_REASONABLE_CARDS;
+    }
+    
+    size_t estimatedTotalCards = static_cast<size_t>(estimated);
+    size_t perTypeCapacity = estimatedTotalCards / 3;
+    const size_t MIN_CAPACITY_PER_TYPE = 100;
+    
+    if (perTypeCapacity < MIN_CAPACITY_PER_TYPE) {
+        perTypeCapacity = MIN_CAPACITY_PER_TYPE;
+    }
+    
+    try {
+        size_t shardIdx = getShardIndex(static_cast<unsigned short>(provinceCode));
+        std::lock_guard<std::mutex> lock(provinceShards[shardIdx].mutex);
+        
+        for (size_t typeIdx = 0; typeIdx < 3; ++typeIdx) {
+            auto& vec = provinceShards[shardIdx].cards[typeIdx];
+            if (vec.capacity() < perTypeCapacity) {
+                vec.reserve(perTypeCapacity);
+            }
+        }
+        
+        LOG_DEBUG("Reserved capacity for province %d: %zu total cards (%zu per type)", 
+                  provinceCode, estimatedTotalCards, perTypeCapacity);
+        
+    } catch (const std::bad_alloc& e) {
+        std::cerr << "[ERROR] Memory allocation failed for province " << provinceCode 
+                  << ": " << e.what() << std::endl;
+        std::cerr << "[ERROR] Requested capacity: " << perTypeCapacity << " per type" << std::endl;
+    } catch (const std::exception& e) {
+        std::cerr << "[ERROR] Unexpected error in reserveProvinceCapacitySafe: " 
+                  << e.what() << std::endl;
+    }
 }
 
 /**

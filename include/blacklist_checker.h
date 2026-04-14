@@ -229,7 +229,15 @@ public:
     unsigned short getCardType(const std::string& cardId);
     
     // 为指定省份预分配容量
-    void reserveProvinceCapacity(int provinceCode, size_t capacity);
+    // @param provinceCode 省份代码 (0-99)
+    // @param jsonFileCount JSON文件数量
+    // @param cardsPerJson 每JSON文件预估卡数 (默认1000)
+    // @param bufferFactor 缓冲系数 (默认1.2)
+    // @return 是否预分配成功
+    bool reserveProvinceCapacitySafe(int provinceCode, 
+                                    size_t jsonFileCount,
+                                    size_t cardsPerJson = 1000,
+                                    double bufferFactor = 1.2);
     
     // 对指定省份的卡片进行排序
     void sortProvince(int provinceCode);
