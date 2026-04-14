@@ -136,13 +136,43 @@ size_t calculateOptimalExtractThreads() {
  */
 size_t calculateOptimalBatchSize() {
     size_t memoryAvailable = getAvailableMemoryMB();
-    
+
     if (memoryAvailable >= 800) {
         return 10000;
     } else if (memoryAvailable >= 500) {
         return 5000;
     } else {
         return 1000;
+    }
+}
+
+/**
+ * @brief 根据系统内存计算最优队列大小
+ * 
+ * 内存与队列大小关系：
+ * - 16G及以上: 1000 (预留充足缓冲)
+ * - 8G: 500 (平衡配置)
+ * - 4G: 300 (保守配置)
+ * - 更低: 200 (极低内存)
+ * 
+ * 每个JsonTask约150KB，预估内存占用：
+ * queueSize * 150KB = 总队列内存
+ */
+size_t calculateOptimalQueueSize() {
+    size_t memoryMB = getAvailableMemoryMB();
+
+    if (memoryMB >= 16000) {
+        std::cout << "[Queue Config] Memory >= 16GB, using queue size: 1000" << std::endl;
+        return 1000;
+    } else if (memoryMB >= 8000) {
+        std::cout << "[Queue Config] Memory >= 8GB, using queue size: 500" << std::endl;
+        return 500;
+    } else if (memoryMB >= 4000) {
+        std::cout << "[Queue Config] Memory >= 4GB, using queue size: 300" << std::endl;
+        return 300;
+    } else {
+        std::cout << "[Queue Config] Memory < 4GB, using queue size: 200" << std::endl;
+        return 200;
     }
 }
 
@@ -172,9 +202,12 @@ ThreadConfig calculateThreadConfig(size_t provinceCount) {
     // 3. 总线程数 = 解压 + 处理
     config.totalThreads = config.extractThreads + config.parseThreads;
 
-    // 4. 队列大小 = 处理线程数 * 50（每线程50个任务缓冲，减少Push超时）
-    //    对于大量JSON文件（数千个），需要更大缓冲
-    config.queueSize = config.parseThreads * 50UL;
+    // 4. 队列大小：根据系统内存动态计算
+    //    - 16G及以上: 1000
+    //    - 8G: 500
+    //    - 4G: 300
+    //    - 更低: 200
+    config.queueSize = calculateOptimalQueueSize();
 
     // 5. 批处理大小
     config.batchSize = calculateOptimalBatchSize();
@@ -228,6 +261,6 @@ ThreadConfig getFallbackConfig() {
     config.parseThreads = 6;
     config.totalThreads = 8;
     config.batchSize = 1000;
-    config.queueSize = 60;
+    config.queueSize = calculateOptimalQueueSize();  // 使用动态计算
     return config;
 }

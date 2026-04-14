@@ -11,6 +11,17 @@
 size_t getCpuCoreCount();
 
 /**
+ * @brief 计算最优队列大小
+ * 根据系统内存动态计算队列大小：
+ * - 16G及以上: 1000
+ * - 8G: 500
+ * - 4G: 300
+ * - 更低: 200
+ * @return 队列大小
+ */
+size_t calculateOptimalQueueSize();
+
+/**
  * @brief 获取可用内存大小（MB）
  * @return 可用内存大小
  */
@@ -31,7 +42,7 @@ struct ThreadConfig {
     size_t parseThreads;        // JSON处理线程数
     size_t totalThreads;        // 总线程数
     size_t batchSize;           // 批处理大小
-    size_t queueSize;           // 队列大小（每个处理线程约10个任务缓冲）
+    size_t queueSize;           // 队列大小（根据内存动态：16G+=1000, 8G=500, 4G=300, <4G=200）
 };
 
 /**
