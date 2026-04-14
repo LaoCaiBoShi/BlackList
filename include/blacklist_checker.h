@@ -6,11 +6,13 @@
 #include <vector>
 #include <string>
 #include <algorithm>
-#include <bitset>
 #include <memory>
 #include <cmath>
 #include <iostream>
 #include <mutex>
+#include <atomic>
+
+#include "shared_bloom_filter.h"
 
 // 前向声明，避免循环依赖
 class PersistReader;
@@ -77,116 +79,6 @@ public:
             return !(*this == other);
         }
     };
-    
-    // 布隆过滤器类
-    class BloomFilter {
-    private:
-        // 最大位数配置：8000万数据，误判率<十万分之一
-        // 最优位数公式：m = -n × ln(p) / (ln(2)²)
-        // n=80M, p=0.00001 → m ≈ 19.2亿 bits ≈ 230 MB
-        // 考虑数据存储约550MB，总计约780MB < 800MB限制
-        static const size_t MAX_BITS = 2000000000; // 最大位数（约240MB）
-        size_t m_bits; // 布隆过滤器的位数
-        size_t m_hashCount; // 哈希函数数量
-        std::unique_ptr<std::vector<bool>> bits; // 使用vector<bool>代替bitset，支持动态大小
-        mutable std::mutex m_mutex; // 互斥锁，保护bits的并发访问
-        size_t m_elementCount; // 元素数量计数器
-
-        // 哈希函数
-        inline size_t hash(const std::string& key, size_t seed) {
-            size_t hash = seed;
-            for (char c : key) {
-                hash = hash * 31 + static_cast<unsigned char>(c);
-            }
-            return hash % m_bits;
-        }
-
-    public:
-        /**
-         * @brief 构造布隆过滤器
-         * @param expectedElements 预期元素数量
-         * @param falsePositiveRate 期望的误判率
-         */
-        BloomFilter(size_t expectedElements = 1000000, double falsePositiveRate = 0.001) {
-            // 计算最优位数
-            m_bits = static_cast<size_t>(-expectedElements * std::log(falsePositiveRate) / (std::log(2) * std::log(2)));
-            
-            // 限制最大位数，避免内存分配失败
-            if (m_bits > MAX_BITS) {
-                m_bits = MAX_BITS;
-                std::cout << "BloomFilter: Bits limit reached, using " << MAX_BITS << " bits" << std::endl;
-            }
-            
-            // 确保位数至少为1000
-            m_bits = std::max(m_bits, static_cast<size_t>(1000));
-            
-            // 计算最优哈希函数数量
-            m_hashCount = static_cast<size_t>(m_bits / expectedElements * std::log(2));
-            // 确保哈希函数数量至少为1，最多为10
-            m_hashCount = std::max(m_hashCount, static_cast<size_t>(1));
-            m_hashCount = std::min(m_hashCount, static_cast<size_t>(10));
-            
-            // 初始化元素计数器
-            m_elementCount = 0;
-            
-            try {
-                // 初始化位向量
-                bits = std::make_unique<std::vector<bool>>(m_bits, false);
-                std::cout << "BloomFilter initialized with " << m_bits << " bits and " << m_hashCount << " hash functions" << std::endl;
-            } catch (const std::exception& e) {
-                std::cerr << "BloomFilter initialization failed: " << e.what() << std::endl;
-                // 使用默认大小
-                m_bits = 1000000; // 约122KB
-                m_hashCount = 3;
-                bits = std::make_unique<std::vector<bool>>(m_bits, false);
-                std::cout << "BloomFilter initialized with default settings: " << m_bits << " bits and " << m_hashCount << " hash functions" << std::endl;
-            }
-        }
-        
-        void add(const std::string& key) {
-            std::lock_guard<std::mutex> lock(m_mutex);
-            for (size_t i = 0; i < m_hashCount; ++i) {
-                size_t index = hash(key, i);
-                if (index < m_bits) {
-                    (*bits)[index] = true;
-                }
-            }
-            m_elementCount++;
-        }
-        
-        bool contains(const std::string& key) {
-            std::lock_guard<std::mutex> lock(m_mutex);
-            for (size_t i = 0; i < m_hashCount; ++i) {
-                size_t index = hash(key, i);
-                if (index >= m_bits || !(*bits)[index]) {
-                    return false;
-                }
-            }
-            return true;
-        }
-        
-        void clear() {
-            std::lock_guard<std::mutex> lock(m_mutex);
-            std::fill(bits->begin(), bits->end(), false);
-            m_elementCount = 0;
-        }
-        
-        // 获取当前布隆过滤器的位数
-        size_t getBits() const {
-            return m_bits;
-        }
-        
-        // 获取当前哈希函数数量
-        size_t getHashCount() const {
-            return m_hashCount;
-        }
-        
-        // 获取元素数量
-        size_t getElementCount() const {
-            std::lock_guard<std::mutex> lock(m_mutex);
-            return m_elementCount;
-        }
-    };
 
     // 省份代码最大值（省级行政区划代码最大约65）
     static constexpr size_t MAX_PROVINCE_CODE = 100;
@@ -216,8 +108,8 @@ public:
         return std::stoi(cardId.substr(0, 2));
     }
 
-    // 布隆过滤器，用于快速判断卡片是否可能在黑名单中
-    BloomFilter bloomFilter;
+    // 布隆过滤器，用于快速判断卡片是否可能在黑名单中（分片无锁版本）
+    ShardedBloomFilter bloomFilter;
 
     // 黑名单版本信息（6字节）
     std::array<char, 6> versionInfo;

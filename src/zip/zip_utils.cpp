@@ -323,69 +323,6 @@ size_t countJsonFilesSafe(const std::vector<std::string>& fileList) {
 }
 
 /**
- * @brief 预分配阶段：遍历所有省份ZIP并预分配容量
- * 
- * 在阶段2结束后、阶段3开始前调用
- * 主线程串行执行，确保线程安全
- * 
- * @param checker 黑名单检查器引用
- * @param provinceZips 省份ZIP信息列表
- * @return 成功预分配的省份数量
- */
-size_t preAllocateAllProvinces(BlacklistChecker& checker,
-                                const std::vector<ProvinceZipInfo>& provinceZips) {
-    std::cout << "\n[Pre-Allocation] Starting capacity pre-allocation for "
-              << provinceZips.size() << " provinces..." << std::endl;
-    
-    size_t successCount = 0;
-    size_t failCount = 0;
-    size_t totalJsonFiles = 0;
-    
-    for (const auto& province : provinceZips) {
-        try {
-            std::cout << "[Pre-Allocation] Province " << province.provinceCode << ": " << std::flush;
-            
-            ZipExtractor extractor;
-            if (extractor.open(province.zipPath) != ZipExtractor::ZipResult::OK) {
-                std::cerr << "[FAIL] Cannot open ZIP" << std::endl;
-                failCount++;
-                continue;
-            }
-            
-            std::vector<std::string> fileList = extractor.getFileList();
-            size_t jsonCount = countJsonFilesSafe(fileList);
-            extractor.close();
-            
-            totalJsonFiles += jsonCount;
-            
-            if (jsonCount == 0) {
-                std::cout << "[SKIP] No JSON files" << std::endl;
-                continue;
-            }
-            
-            checker.reserveProvinceCapacitySafe(
-                province.provinceCode,
-                jsonCount,
-                1000,
-                1.2
-            );
-            
-            std::cout << jsonCount << " JSONs, ~" << (jsonCount * 1000 / 10000) << "k cards [OK]" << std::endl;
-            successCount++;
-            
-        } catch (const std::exception& e) {
-            std::cerr << "[ERROR] " << e.what() << std::endl;
-            failCount++;
-        }
-    }
-    
-    std::cout << "[Pre-Allocation] Completed: " << successCount << " succeeded, "
-              << failCount << " failed, " << totalJsonFiles << " total JSON files" << std::endl;
-    
-    return successCount;
-}
-
-/**
  * @brief 从 JSON 文件中提取所有卡号
  * @param filePath 文件路径
  * @param cardIds 输出：提取的卡号列表
@@ -682,6 +619,66 @@ struct ProvinceZipInfo {
     uint64_t size;             // 文件大小
     std::vector<std::string> jsonFiles; // JSON文件列表（解压后）
 };
+
+/**
+ * @brief 预分配阶段：遍历所有省份ZIP并预分配容量
+ * 在阶段2结束后、阶段3开始前调用
+ * @param checker 黑名单检查器引用
+ * @param provinceZips 省份ZIP信息列表
+ * @return 成功预分配的省份数量
+ */
+size_t preAllocateAllProvinces(BlacklistChecker& checker,
+                                const std::vector<ProvinceZipInfo>& provinceZips) {
+    std::cout << "\n[Pre-Allocation] Starting capacity pre-allocation for "
+              << provinceZips.size() << " provinces..." << std::endl;
+
+    size_t successCount = 0;
+    size_t failCount = 0;
+    size_t totalJsonFiles = 0;
+
+    for (const auto& province : provinceZips) {
+        try {
+            std::cout << "[Pre-Allocation] Province " << province.provinceCode << ": " << std::flush;
+
+            ZipExtractor extractor;
+            if (extractor.open(province.zipPath) != ZipExtractor::ZipResult::OK) {
+                std::cerr << "[FAIL] Cannot open ZIP" << std::endl;
+                failCount++;
+                continue;
+            }
+
+            std::vector<std::string> fileList = extractor.getFileList();
+            size_t jsonCount = countJsonFilesSafe(fileList);
+            extractor.close();
+
+            totalJsonFiles += jsonCount;
+
+            if (jsonCount == 0) {
+                std::cout << "[SKIP] No JSON files" << std::endl;
+                continue;
+            }
+
+            checker.reserveProvinceCapacitySafe(
+                province.provinceCode,
+                jsonCount,
+                1000,
+                1.2
+            );
+
+            std::cout << jsonCount << " JSONs, ~" << (jsonCount * 1000 / 10000) << "k cards [OK]" << std::endl;
+            successCount++;
+
+        } catch (const std::exception& e) {
+            std::cerr << "[ERROR] " << e.what() << std::endl;
+            failCount++;
+        }
+    }
+
+    std::cout << "[Pre-Allocation] Completed: " << successCount << " succeeded, "
+              << failCount << " failed, " << totalJsonFiles << " total JSON files" << std::endl;
+
+    return successCount;
+}
 
 // 前向声明
 int extractProvinceCode(const std::string& fileName);
@@ -1568,7 +1565,7 @@ bool loadBlacklistFromCompressedFile(const std::string& compressedPath, Blacklis
                         }
 
                         size_t totalCards = jsonCount * 1000 + 1000;
-                        checker.reserveProvinceCapacity(provinceInfo.provinceCode, totalCards);
+                        checker.reserveProvinceCapacitySafe(provinceInfo.provinceCode, jsonCount, 1000, 1.2);
 
                         safeLog("Extract thread " + std::to_string(i) + ": Province " +
                                std::to_string(provinceInfo.provinceCode) + " found " +

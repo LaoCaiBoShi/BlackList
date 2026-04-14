@@ -514,19 +514,19 @@ void BlacklistChecker::reserveCapacity(size_t additionalRecords) {
     std::cout << "Reserved capacity for " << additionalRecords << " additional records" << std::endl;
 }
 
-void BlacklistChecker::reserveProvinceCapacitySafe(int provinceCode, 
+bool BlacklistChecker::reserveProvinceCapacitySafe(int provinceCode,
                                                     size_t jsonFileCount,
                                                     size_t cardsPerJson,
                                                     double bufferFactor) {
     if (provinceCode < 0 || static_cast<size_t>(provinceCode) >= MAX_PROVINCE_CODE) {
-        std::cerr << "[ERROR] Invalid province code: " << provinceCode 
+        std::cerr << "[ERROR] Invalid province code: " << provinceCode
                   << " (valid range: 0-" << (MAX_PROVINCE_CODE - 1) << ")" << std::endl;
-        return;
+        return false;
     }
     
     if (jsonFileCount == 0) {
         std::cout << "[WARN] Province " << provinceCode << " has 0 JSON files, skipping pre-allocation" << std::endl;
-        return;
+        return true;
     }
     
     double estimated = static_cast<double>(jsonFileCount) * 
@@ -563,13 +563,17 @@ void BlacklistChecker::reserveProvinceCapacitySafe(int provinceCode,
                   provinceCode, estimatedTotalCards, perTypeCapacity);
         
     } catch (const std::bad_alloc& e) {
-        std::cerr << "[ERROR] Memory allocation failed for province " << provinceCode 
+        std::cerr << "[ERROR] Memory allocation failed for province " << provinceCode
                   << ": " << e.what() << std::endl;
         std::cerr << "[ERROR] Requested capacity: " << perTypeCapacity << " per type" << std::endl;
+        return false;
     } catch (const std::exception& e) {
-        std::cerr << "[ERROR] Unexpected error in reserveProvinceCapacitySafe: " 
+        std::cerr << "[ERROR] Unexpected error in reserveProvinceCapacitySafe: "
                   << e.what() << std::endl;
+        return false;
     }
+
+    return true;
 }
 
 /**
@@ -740,7 +744,7 @@ bool BlacklistChecker::saveToPersistFile(const std::string& filename) {
         header.version = PERSIST_FORMAT_VERSION;
         header.prefixCount = static_cast<uint32_t>(prefixCount);
         header.totalCards = static_cast<uint32_t>(size());
-        header.bloomFilterBits = bloomFilter.getBits();
+        header.bloomFilterBits = bloomFilter.getTotalBits();
         header.createdTime = static_cast<uint64_t>(std::time(nullptr));
         std::memcpy(header.versionInfo, versionInfo.data(), 6);
         file.write(reinterpret_cast<const char*>(&header), sizeof(header));
