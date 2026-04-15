@@ -764,11 +764,17 @@ void BlacklistChecker::printLoadingStats() const {
  */
 bool BlacklistChecker::saveToPersistFile(const std::string& filename) {
     try {
+        std::cout << "[BlacklistChecker] Opening file for writing: " << filename << std::endl;
+        LOG_INFO("Opening persist file for writing: %s", filename.c_str());
+
         std::ofstream file(filename, std::ios::binary);
         if (!file.is_open()) {
-            std::cerr << "Failed to open persist file for writing: " << filename << std::endl;
+            std::cerr << "[BlacklistChecker] Failed to open persist file for writing: " << filename << std::endl;
+            LOG_ERROR("Failed to open persist file for writing: %s", filename.c_str());
             return false;
         }
+        std::cout << "[BlacklistChecker] File opened successfully" << std::endl;
+        LOG_DEBUG("Persist file opened successfully");
 
         const size_t headerSize = sizeof(PersistHeader);
         const size_t indexEntrySize = sizeof(PersistIndexEntry);
@@ -777,6 +783,7 @@ bool BlacklistChecker::saveToPersistFile(const std::string& filename) {
         std::vector<std::pair<uint16_t, std::array<uint32_t, 3>>> prefixCounts;
         size_t currentOffset = headerSize;
 
+        size_t totalCards = 0;
         for (size_t shardIdx = 0; shardIdx < MAX_PROVINCE_CODE; ++shardIdx) {
             uint16_t provinceCode = static_cast<uint16_t>(shardIdx);
             std::array<uint32_t, 3> counts = {
@@ -788,6 +795,8 @@ bool BlacklistChecker::saveToPersistFile(const std::string& filename) {
             if (counts[0] == 0 && counts[1] == 0 && counts[2] == 0) {
                 continue;
             }
+
+            totalCards += counts[0] + counts[1] + counts[2];
 
             std::array<uint64_t, 3> offsets = {0, 0, 0};
             offsets[0] = currentOffset;
@@ -852,10 +861,15 @@ bool BlacklistChecker::saveToPersistFile(const std::string& filename) {
         }
 
         file.close();
-        std::cout << "Persist file saved: " << filename << std::endl;
+        std::cout << "[BlacklistChecker] Persist file saved: " << filename << std::endl;
+        std::cout << "[BlacklistChecker] Saved " << totalCards << " cards in "
+                  << prefixOffsets.size() << " provinces" << std::endl;
+        LOG_INFO("Persist file saved: %s, cards: %zu, provinces: %zu",
+                 filename.c_str(), totalCards, prefixOffsets.size());
         return true;
     } catch (const std::exception& e) {
-        std::cerr << "Error saving persist file: " << e.what() << std::endl;
+        std::cerr << "[BlacklistChecker] Error saving persist file: " << e.what() << std::endl;
+        LOG_ERROR("Error saving persist file: %s", e.what());
         return false;
     }
 }

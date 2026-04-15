@@ -216,9 +216,17 @@ bool PersistManager::save(const std::string& zipPath, BlacklistChecker& checker)
         return false;
     }
 
+    std::string cacheDir = getCacheDirectory();
+    std::cout << "[PersistManager] Cache directory: " << cacheDir << std::endl;
+    LOG_INFO("Cache directory: %s", cacheDir.c_str());
+
     if (!createCacheDirectory()) {
+        std::cerr << "[PersistManager] Failed to create cache directory" << std::endl;
+        LOG_ERROR("Failed to create cache directory: %s", cacheDir.c_str());
         return false;
     }
+    std::cout << "[PersistManager] Cache directory ready" << std::endl;
+    LOG_INFO("Cache directory created/verified successfully");
 
     std::string cachePath = getCacheFilePath(versionDate);
     std::cout << "[PersistManager] Saving cache to: " << cachePath << std::endl;
@@ -337,8 +345,15 @@ bool PersistManager::createCacheDirectory() {
         DWORD err = GetLastError();
         if (err != ERROR_ALREADY_EXISTS) {
             std::cerr << "[PersistManager] Failed to create cache directory: " << cacheDir << std::endl;
+            std::cerr << "[PersistManager] Windows error code: " << err << std::endl;
+            LOG_ERROR("Failed to create cache directory: %s, error code: %lu", cacheDir.c_str(), err);
             return false;
         }
+        std::cout << "[PersistManager] Cache directory already exists: " << cacheDir << std::endl;
+        LOG_INFO("Cache directory already exists: %s", cacheDir.c_str());
+    } else {
+        std::cout << "[PersistManager] Cache directory created: " << cacheDir << std::endl;
+        LOG_INFO("Cache directory created: %s", cacheDir.c_str());
     }
 #else
     mkdir(cacheDir.c_str(), 0755);

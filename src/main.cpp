@@ -313,7 +313,17 @@ int main(int argc, char* argv[]) {
                         std::string cachePath = PersistManager::getCacheFilePath(versionDate);
                         std::cout << "\nSaving cache to: " << cachePath << std::endl;
                         LOG_INFO("Saving cache to: %s", cachePath.c_str());
-                        service.saveToPersistFile(cachePath);
+
+                        if (!service.saveToPersistFile(cachePath)) {
+                            LOG_ERROR("Failed to save cache to: %s", cachePath.c_str());
+                            std::cerr << "[ERROR] Cache save failed!" << std::endl;
+                        } else {
+                            LOG_INFO("Cache save completed successfully");
+                            std::cout << "[OK] Cache saved successfully" << std::endl;
+                        }
+                    } else {
+                        LOG_WARN("Cannot extract version from filename, skipping cache save");
+                        std::cerr << "[WARN] Cannot extract version from filename: " << zipPath << std::endl;
                     }
 
                     queryCardLoop(service);
