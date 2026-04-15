@@ -124,6 +124,12 @@ bool isSsdDrive(const std::string& path) {
 
 /**
  * @brief 计算最优解压线程数
+ * @return 最优解压线程数
+ *
+ * 计算策略：
+ * - SSD: min(8, CPU核心数)
+ * - HDD: min(4, CPU核心数/2)
+ * - 最少返回2
  */
 size_t calculateOptimalExtractThreads() {
     size_t cpuCount = getCpuCoreCount();
@@ -138,6 +144,12 @@ size_t calculateOptimalExtractThreads() {
 
 /**
  * @brief 计算最优批处理大小
+ * @return 批处理大小
+ *
+ * 计算策略：
+ * - 内存>=800MB: 10000
+ * - 内存>=500MB: 5000
+ * - 其他: 1000
  */
 size_t calculateOptimalBatchSize() {
     size_t memoryAvailable = getAvailableMemoryMB();
@@ -246,6 +258,12 @@ PerformanceStats monitorPerformance() {
 
 /**
  * @brief 调整线程配置
+ * @param config 线程配置（输入输出）
+ * @param stats 性能统计（输入）
+ *
+ * 根据性能统计动态调整配置：
+ * - 解压速度<10MB/s时，增加解压线程
+ * - 解析速度<10000条/秒时，增加解析线程
  */
 void adjustThreadConfig(ThreadConfig& config, const PerformanceStats& stats) {
     if (stats.extractSpeed < 10) {
@@ -258,7 +276,15 @@ void adjustThreadConfig(ThreadConfig& config, const PerformanceStats& stats) {
 }
 
 /**
- * @brief 获取降级配置
+ * @brief 获取降级配置（保守配置）
+ * @return 降级后的线程配置
+ *
+ * 当系统资源不足或检测到问题时使用的保守配置：
+ * - extractThreads: 2（解压线程）
+ * - parseThreads: 6（解析线程）
+ * - totalThreads: 8
+ * - batchSize: 1000
+ * - queueSize: 动态计算
  */
 ThreadConfig getFallbackConfig() {
     ThreadConfig config;
@@ -275,6 +301,13 @@ ThreadConfig getFallbackConfig() {
  * @param precision 精度级别
  * @param memoryMB 系统可用内存(MB)
  * @return 布隆过滤器配置
+ *
+ * 精度级别与误判率：
+ * - NORMAL: 10^-5 (十万分之一)
+ * - HIGH: 10^-6 (百万分之一) - 默认
+ * - ULTRA: 10^-7 (千万分之一)
+ *
+ * 当内存<2GB时，ULTRA模式自动降级为HIGH
  */
 BloomFilterConfig calculateBloomFilterConfig(BloomFilterPrecision precision,
                                              size_t memoryMB) {
@@ -303,6 +336,17 @@ BloomFilterConfig calculateBloomFilterConfig(BloomFilterPrecision precision,
 
 /**
  * @brief 检查文件是否有读取权限
+ * @param filePath 文件路径
+ * @return 是否有读取权限
+ *
+ * 跨平台实现：
+ * - Windows: 使用CreateFile尝试打开文件
+ * - Linux/Mac: 使用access()函数
+ *
+ * 检测场景：
+ * - 文件不存在
+ * - 访问被拒绝
+ * - 文件被锁定
  */
 bool hasReadPermission(const std::string& filePath) {
 #if defined(_WIN32) || defined(_WIN64)
@@ -347,6 +391,15 @@ bool hasReadPermission(const std::string& filePath) {
 
 /**
  * @brief 检查是否为有效的ZIP文件（通过魔数校验）
+ * @param filePath 文件路径
+ * @return 是否为有效的ZIP文件
+ *
+ * ZIP文件魔数：
+ * - PK\x03\x04: 标准ZIP文件
+ * - PK\x05\x06: ZIP空归档
+ * - PK\x07\x08: ZIP spanned（多卷）
+ *
+ * 注意：仅检查文件头魔数，不解析ZIP内部结构
  */
 bool isValidZipFile(const std::string& filePath) {
     std::ifstream file(filePath, std::ios::binary);
@@ -380,6 +433,10 @@ bool isValidZipFile(const std::string& filePath) {
 
 /**
  * @brief 检查文件是否为空
+ * @param filePath 文件路径
+ * @return 文件大小是否为0
+ *
+ * 使用getFileSizeSafe获取文件大小进行判断
  */
 bool isEmptyFile(const std::string& filePath) {
     uint64_t size = getFileSizeSafe(filePath);
@@ -391,7 +448,14 @@ bool isEmptyFile(const std::string& filePath) {
 }
 
 /**
- * @brief 获取文件大小
+ * @brief 获取文件大小（跨平台安全版本）
+ * @param filePath 文件路径
+ * @return 文件大小（字节），失败返回0
+ *
+ * 跨平台实现：
+ * - Windows: 使用GetFileAttributesEx
+ * - Linux: 使用stat
+ * - Mac: 使用stat
  */
 uint64_t getFileSizeSafe(const std::string& filePath) {
 #if defined(_WIN32) || defined(_WIN64)
@@ -422,6 +486,16 @@ uint64_t getFileSizeSafe(const std::string& filePath) {
 
 /**
  * @brief 检查磁盘空间是否充足
+ * @param path 目录路径（用于确定磁盘）
+ * @param requiredBytes 需要的字节数
+ * @return 空间是否充足
+ *
+ * 跨平台实现：
+ * - Windows: 使用GetDiskFreeSpaceEx
+ * - Linux: 使用statvfs
+ * - Mac: 使用statfs
+ *
+ * @note 当空间不足时，会输出详细的空间信息
  */
 bool checkDiskSpace(const std::string& path, uint64_t requiredBytes) {
 #if defined(_WIN32) || defined(_WIN64)
@@ -466,6 +540,17 @@ bool checkDiskSpace(const std::string& path, uint64_t requiredBytes) {
 
 /**
  * @brief 统一验证ZIP文件（综合检查）
+ * @param filePath 文件路径
+ * @param errorMsg 错误信息输出（可为nullptr）
+ * @return 是否验证通过
+ *
+ * 验证步骤（按顺序）：
+ * 1. 路径为空检查
+ * 2. 文件大小为0检查
+ * 3. 文件读取权限检查
+ * 4. ZIP魔数格式检查
+ *
+ * 每项检查失败都会设置errorMsg（如果提供）
  */
 bool validateZipFile(const std::string& filePath, std::string* errorMsg) {
     if (filePath.empty()) {
