@@ -2,13 +2,41 @@
 
 ## 版本信息
 
-**当前版本**：v2026-04-14-7
+**当前版本**：v2026-04-14-8
 **最后更新**：2026-04-14
-**Git提交**：`59bea17`
+**Git提交**：`f81a784`
 
 ---
 
 ## 2026-04-14
+
+### 版本：v2026-04-14-8
+
+**Git提交**：`f81a784`
+
+**改动**：补充system_utils函数注释，完善参数和返回值说明
+
+---
+
+### 函数注释完善
+
+新增/完善注释的函数：
+
+| 函数 | 补充内容 |
+|------|---------|
+| `calculateOptimalExtractThreads` | 返回值和计算策略说明 |
+| `calculateOptimalBatchSize` | 返回值和计算策略说明 |
+| `adjustThreadConfig` | 参数说明和动态调整逻辑 |
+| `getFallbackConfig` | 返回值和降级配置说明 |
+| `calculateBloomFilterConfig` | 精度级别和内存限制说明 |
+| `hasReadPermission` | 跨平台实现和检测场景说明 |
+| `isValidZipFile` | ZIP魔数说明 |
+| `isEmptyFile` | 返回值说明 |
+| `getFileSizeSafe` | 跨平台实现说明 |
+| `checkDiskSpace` | 跨平台实现和空间不足处理说明 |
+| `validateZipFile` | 验证步骤和errorMsg使用说明 |
+
+---
 
 ### 版本：v2026-04-14-7
 
