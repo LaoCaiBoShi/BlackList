@@ -112,6 +112,43 @@ bool BlacklistService::update(const std::string& zipPath, QueryMode mode) {
     }
 }
 
+bool BlacklistService::loadFromPersistFile(const std::string& persistPath) {
+    auto startTime = std::chrono::steady_clock::now();
+
+    std::cout << "[BlacklistService] Loading from persist file..." << std::endl;
+    LOG_INFO("BlacklistService loading from persist file: %s", persistPath.c_str());
+
+    {
+        std::lock_guard<std::mutex> statusLock(statusMutex_);
+        status_ = Status::LOADING;
+    }
+
+    bool success = checker_->loadFromPersistFile(persistPath);
+
+    if (success) {
+        auto duration = std::chrono::duration_cast<std::chrono::milliseconds>(
+            std::chrono::steady_clock::now() - startTime).count();
+
+        std::cout << "[BlacklistService] Persist load completed in " << duration << " ms" << std::endl;
+        LOG_INFO("Persist load completed in %lld ms", (long long)duration);
+
+        {
+            std::lock_guard<std::mutex> statusLock(statusMutex_);
+            status_ = Status::READY;
+        }
+        return true;
+    } else {
+        setError("Failed to load from persist file");
+        LOG_ERROR("Persist load failed");
+
+        {
+            std::lock_guard<std::mutex> statusLock(statusMutex_);
+            status_ = Status::ERROR;
+        }
+        return false;
+    }
+}
+
 bool BlacklistService::isBlacklisted(const std::string& cardId) {
     return checker_->isBlacklisted(cardId);
 }

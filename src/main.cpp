@@ -1,6 +1,7 @@
 #define _CRT_SECURE_NO_WARNINGS
 #include "blacklist_service.h"
 #include "system_utils.h"
+#include "persist_manager.h"
 #include "log_manager.h"
 #include <iostream>
 #include <fstream>
@@ -183,7 +184,7 @@ void queryCardLoop(BlacklistService& service) {
 }
 
 int main(int argc, char* argv[]) {
-    auto startTime = std::chrono::steady_clock::now();
+    auto programStartTime = std::chrono::steady_clock::now();
 
     std::cout << "==========================================" << std::endl;
     std::cout << "Blacklist Service - Startup" << std::endl;
@@ -192,8 +193,55 @@ int main(int argc, char* argv[]) {
     LogManager::getInstance().init("D:/Coder/BlackList/logs", LogManager::INFO);
     LOG_INFO("==========================================");
     LOG_INFO("Blacklist Service starting...");
-    LOG_INFO("Version: v2026-04-13-3");
-    LOG_INFO("CPU cores: %d", std::thread::hardware_concurrency());
+
+    PersistManager pm;
+
+    CacheInfo cacheInfo;
+    auto cacheResult = pm.checkCacheAvailable();
+    if (cacheResult == CacheLoadResult::SUCCESS) {
+        std::string latestCache = PersistManager::findLatestCache();
+        if (pm.getCacheInfo(latestCache, cacheInfo)) {
+            std::cout << "\n==========================================" << std::endl;
+            std::cout << "Cache Found!" << std::endl;
+            std::cout << "==========================================" << std::endl;
+            std::cout << "Cache version: " << cacheInfo.versionDate << std::endl;
+            std::cout << "Records: " << cacheInfo.recordCount << std::endl;
+            std::cout << "Cache file: " << cacheInfo.cachePath << std::endl;
+            std::cout << "\nLoading from cache (fast mode)..." << std::endl;
+            LOG_INFO("Cache found: %s, records: %llu",
+                     cacheInfo.versionDate.c_str(),
+                     (unsigned long long)cacheInfo.recordCount);
+
+            BlacklistService service(QueryMode::CARDINFO_ONLY);
+            auto loadResult = service.loadFromPersistFile(latestCache);
+
+            if (loadResult) {
+                std::cout << "\nCache loaded successfully!" << std::endl;
+                std::cout << "Records: " << service.getBlacklistSize() << std::endl;
+                LOG_INFO("Cache loaded successfully, records: %lld",
+                         (long long)service.getBlacklistSize());
+
+                auto duration = std::chrono::duration_cast<std::chrono::milliseconds>(
+                    std::chrono::steady_clock::now() - programStartTime).count();
+                std::cout << "Load time: " << duration << " ms" << std::endl;
+
+                queryCardLoop(service);
+
+                auto endTime = std::chrono::steady_clock::now();
+                auto totalDuration = std::chrono::duration_cast<std::chrono::milliseconds>(
+                    endTime - programStartTime).count();
+                LOG_INFO("Program exiting normally, total runtime: %lld ms", (long long)totalDuration);
+                std::cout << "Total runtime: " << totalDuration << " ms" << std::endl;
+                return 0;
+            } else {
+                std::cout << "\nCache load failed, falling back to ZIP mode..." << std::endl;
+                LOG_WARN("Cache load failed, falling back to ZIP mode");
+            }
+        }
+    } else {
+        std::cout << "\nNo cache found, will load from ZIP file." << std::endl;
+        LOG_INFO("No cache found");
+    }
 
     std::string zipPath;
     if (argc > 1) {
@@ -201,7 +249,7 @@ int main(int argc, char* argv[]) {
         std::cout << "ZIP file: " << zipPath << std::endl;
         LOG_INFO("ZIP file from command line: %s", zipPath.c_str());
     } else {
-        std::cout << "Enter compressed file path: ";
+        std::cout << "\nEnter compressed file path: ";
         std::getline(std::cin, zipPath);
         LOG_INFO("ZIP file from stdin: %s", zipPath.empty() ? "(empty)" : zipPath.c_str());
     }
@@ -257,7 +305,15 @@ int main(int argc, char* argv[]) {
 
                 if (initSuccess && service.getBlacklistSize() > 0) {
                     std::cout << "\nBlacklist loaded successfully!" << std::endl;
-                    LOG_INFO("BlacklistService initialized successfully, records: %lld", (long long)service.getBlacklistSize());
+                    LOG_INFO("BlacklistService initialized successfully, records: %lld",
+                             (long long)service.getBlacklistSize());
+
+                    std::string versionDate = PersistManager::extractVersionFromFilename(zipPath);
+                    if (!versionDate.empty()) {
+                        std::cout << "\nSaving cache for version " << versionDate << "..." << std::endl;
+                        LOG_INFO("Saving cache for version: %s", versionDate.c_str());
+                    }
+
                     queryCardLoop(service);
                 } else {
                     std::cout << "\nInitialization failed. Exiting..." << std::endl;
@@ -267,7 +323,8 @@ int main(int argc, char* argv[]) {
                 }
 
                 auto endTime = std::chrono::steady_clock::now();
-                auto duration = std::chrono::duration_cast<std::chrono::milliseconds>(endTime - startTime).count();
+                auto duration = std::chrono::duration_cast<std::chrono::milliseconds>(
+                    endTime - programStartTime).count();
                 LOG_INFO("Program exiting normally, total runtime: %lld ms", (long long)duration);
                 std::cout << "Total runtime: " << duration << " ms" << std::endl;
 
