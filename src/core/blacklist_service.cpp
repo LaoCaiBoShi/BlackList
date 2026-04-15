@@ -64,6 +64,54 @@ bool BlacklistService::initialize(const std::string& zipPath, QueryMode mode) {
     }
 }
 
+bool BlacklistService::update(const std::string& zipPath, QueryMode mode) {
+    auto startTime = std::chrono::steady_clock::now();
+
+    std::cout << "\n[BlacklistService] Updating blacklist..." << std::endl;
+    LOG_INFO("BlacklistService update starting...");
+    LOG_INFO("New ZIP path: %s", zipPath.c_str());
+
+    {
+        std::lock_guard<std::mutex> statusLock(statusMutex_);
+        status_ = Status::LOADING;
+    }
+
+    checker_ = std::make_unique<BlacklistChecker>(mode);
+    const char* modeName[] = {"BLOOM_ONLY", "CARDINFO_ONLY", "BLOOM_AND_CARDINFO"};
+    std::cout << "[BlacklistService] Switched to mode: " << modeName[static_cast<int>(mode)] << std::endl;
+
+    size_t loaded = 0, invalid = 0;
+    bool success = loadBlacklistFromCompressedFile(zipPath, *checker_, loaded, invalid);
+
+    if (success) {
+        auto duration = std::chrono::duration_cast<std::chrono::milliseconds>(
+            std::chrono::steady_clock::now() - startTime).count();
+
+        std::cout << "[BlacklistService] Update completed!" << std::endl;
+        std::cout << "[BlacklistService] New records: " << loaded << std::endl;
+        std::cout << "[BlacklistService] Duration: " << duration << " ms" << std::endl;
+
+        LOG_INFO("BlacklistService update completed successfully");
+        LOG_INFO("New records: %zu, Invalid: %zu, Duration: %lld ms",
+                 loaded, invalid, (long long)duration);
+
+        {
+            std::lock_guard<std::mutex> statusLock(statusMutex_);
+            status_ = Status::READY;
+        }
+        return true;
+    } else {
+        setError("Failed to update blacklist");
+        LOG_ERROR("BlacklistService update failed");
+
+        {
+            std::lock_guard<std::mutex> statusLock(statusMutex_);
+            status_ = Status::ERROR;
+        }
+        return false;
+    }
+}
+
 bool BlacklistService::isBlacklisted(const std::string& cardId) {
     return checker_->isBlacklisted(cardId);
 }

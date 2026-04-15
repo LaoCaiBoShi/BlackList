@@ -62,6 +62,7 @@ void queryCardLoop(BlacklistService& service) {
     std::cout << "\nCommands:" << std::endl;
     std::cout << "  - Enter card ID to check (20 digits)" << std::endl;
     std::cout << "  - 'status' : Show service status and version" << std::endl;
+    std::cout << "  - 'update'  : Reload blacklist from new ZIP file" << std::endl;
     std::cout << "  - 'quit'    : Exit program" << std::endl;
 
     std::string input;
@@ -94,6 +95,51 @@ void queryCardLoop(BlacklistService& service) {
             std::cout << "Status: " << service.getStatusString() << std::endl;
             std::cout << "Records: " << service.getBlacklistSize() << std::endl;
             std::cout << "Version: " << service.getVersionInfo() << std::endl;
+            continue;
+        }
+
+        if (input == "update" || input == "reload") {
+            std::cout << "\n--- Update Blacklist ---" << std::endl;
+            std::cout << "Enter new ZIP file path: ";
+            std::string newZipPath;
+            std::getline(std::cin, newZipPath);
+
+            newZipPath.erase(0, newZipPath.find_first_not_of(" \t\r\n"));
+            newZipPath.erase(newZipPath.find_last_not_of(" \t\r\n") + 1);
+
+            if (newZipPath.empty()) {
+                std::cout << "Update cancelled: empty path" << std::endl;
+                LOG_INFO("Update cancelled: empty path");
+                continue;
+            }
+
+            if (!std::filesystem::exists(newZipPath)) {
+                std::cout << "Update failed: file not found: " << newZipPath << std::endl;
+                LOG_ERROR("Update failed: file not found: %s", newZipPath.c_str());
+                continue;
+            }
+
+            std::string validationError;
+            if (!validateZipFile(newZipPath, &validationError)) {
+                std::cout << "Update failed: invalid ZIP file" << std::endl;
+                std::cout << "Reason: " << validationError << std::endl;
+                LOG_ERROR("Update failed: invalid ZIP: %s", validationError.c_str());
+                continue;
+            }
+
+            QueryMode newMode = selectQueryMode();
+
+            std::cout << "\nLoading new blacklist..." << std::endl;
+            LOG_INFO("Starting blacklist update from: %s", newZipPath.c_str());
+
+            if (service.update(newZipPath, newMode)) {
+                std::cout << "\nUpdate successful!" << std::endl;
+                std::cout << "Records: " << service.getBlacklistSize() << std::endl;
+                LOG_INFO("Blacklist update completed successfully");
+            } else {
+                std::cout << "\nUpdate failed: " << service.getLastError() << std::endl;
+                LOG_ERROR("Blacklist update failed: %s", service.getLastError().c_str());
+            }
             continue;
         }
 
