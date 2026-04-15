@@ -60,7 +60,7 @@ QueryMode selectQueryMode() {
     return mode;
 }
 
-void queryCardLoop(BlacklistService& service) {
+void queryCardLoop(BlacklistService& service, PersistManager& pm) {
     std::cout << "\n==========================================" << std::endl;
     std::cout << "Blacklist Query Mode (Console)" << std::endl;
     std::cout << "==========================================" << std::endl;
@@ -143,6 +143,23 @@ void queryCardLoop(BlacklistService& service) {
                 std::cout << "\nUpdate successful!" << std::endl;
                 std::cout << "Records: " << service.getBlacklistSize() << std::endl;
                 LOG_INFO("Blacklist update completed successfully");
+
+                std::string versionDate = PersistManager::extractVersionFromFilename(newZipPath);
+                if (!versionDate.empty()) {
+                    std::string cachePath = PersistManager::getCacheFilePath(versionDate);
+                    std::cout << "\nSaving cache to: " << cachePath << std::endl;
+                    LOG_INFO("Saving updated cache to: %s", cachePath.c_str());
+
+                    if (pm.createCacheDirectory()) {
+                        if (service.saveToPersistFile(cachePath)) {
+                            std::cout << "[OK] Cache updated successfully" << std::endl;
+                            LOG_INFO("Cache updated successfully");
+                        } else {
+                            std::cerr << "[ERROR] Cache update failed" << std::endl;
+                            LOG_ERROR("Cache update failed");
+                        }
+                    }
+                }
             } else {
                 std::cout << "\nUpdate failed: " << service.getLastError() << std::endl;
                 LOG_ERROR("Blacklist update failed: %s", service.getLastError().c_str());
@@ -225,7 +242,7 @@ int main(int argc, char* argv[]) {
                     std::chrono::steady_clock::now() - programStartTime).count();
                 std::cout << "Load time: " << duration << " ms" << std::endl;
 
-                queryCardLoop(service);
+                queryCardLoop(service, pm);
 
                 auto endTime = std::chrono::steady_clock::now();
                 auto totalDuration = std::chrono::duration_cast<std::chrono::milliseconds>(
@@ -329,7 +346,7 @@ int main(int argc, char* argv[]) {
                         std::cerr << "[WARN] Cannot extract version from filename: " << zipPath << std::endl;
                     }
 
-                    queryCardLoop(service);
+                    queryCardLoop(service, pm);
                 } else {
                     std::cout << "\nInitialization failed. Exiting..." << std::endl;
                     std::cout << "Error: " << service.getLastError() << std::endl;
