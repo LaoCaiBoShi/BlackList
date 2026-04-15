@@ -52,24 +52,40 @@ std::string PersistManager::extractVersionFromFilename(const std::string& filena
 }
 
 std::string PersistManager::getCacheDirectory() {
-    std::string homeDir = getHomeDirectory();
-    if (homeDir.empty()) {
+#if defined(_WIN32) || defined(_WIN64)
+    char exePath[MAX_PATH];
+    if (GetModuleFileNameA(NULL, exePath, MAX_PATH) == 0) {
         return ".\\cache";
     }
-#if defined(_WIN32) || defined(_WIN64)
-    if (homeDir.back() != '\\' && homeDir.back() != '/') {
-        homeDir += '\\';
+
+    std::string exeStr(exePath);
+    size_t lastSep = exeStr.find_last_of("\\/");
+    if (lastSep == std::string::npos) {
+        return ".\\cache";
     }
-    return homeDir + ".blacklist_cache";
+
+    std::string exeDir = exeStr.substr(0, lastSep);
+    return exeDir + "\\cache";
 #else
-    if (homeDir.back() != '/') {
-        homeDir += '/';
+    char exePath[PATH_MAX];
+    if (readlink("/proc/self/exe", exePath, PATH_MAX) <= 0) {
+        return "./cache";
     }
-    return homeDir + ".blacklist_cache";
+
+    std::string exeStr(exePath);
+    size_t lastSep = exeStr.find_last_of('/');
+    if (lastSep == std::string::npos) {
+        return "./cache";
+    }
+
+    return exeStr.substr(0, lastSep) + "/cache";
 #endif
 }
 
 std::string PersistManager::getCacheFilePath(const std::string& versionDate) {
+    if (versionDate.empty()) {
+        return "";
+    }
 #if defined(_WIN32) || defined(_WIN64)
     return getCacheDirectory() + "\\blacklist_cache_v" + versionDate + ".dat";
 #else
@@ -308,33 +324,6 @@ std::string PersistManager::calculateFileMd5(const std::string& filePath) {
     md5Str[32] = '\0';
 
     return std::string(md5Str);
-#else
-    return "";
-#endif
-}
-
-std::string PersistManager::getHomeDirectory() {
-#if defined(_WIN32) || defined(_WIN64)
-    char path[MAX_PATH];
-    if (SHGetSpecialFolderPathA(NULL, path, CSIDL_PROFILE, FALSE)) {
-        return std::string(path);
-    }
-    return "";
-#elif defined(__linux__)
-    if (const char* home = getenv("HOME")) {
-        return std::string(home);
-    }
-    struct passwd* pw = getpwuid(getuid());
-    if (pw) {
-        return std::string(pw->pw_dir);
-    }
-    return "";
-#elif defined(__APPLE__)
-    struct passwd* pw = getpwuid(getuid());
-    if (pw) {
-        return std::string(pw->pw_dir);
-    }
-    return "";
 #else
     return "";
 #endif

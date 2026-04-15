@@ -145,7 +145,6 @@ public:
     bool isCacheUpToDate(const CacheInfo& cacheInfo, const std::string& zipPath);
 
 private:
-    static std::string getHomeDirectory();
     bool createCacheDirectory();
 
     bool readHeader(const std::string& cachePath, BlacklistChecker::PersistHeader& header);
