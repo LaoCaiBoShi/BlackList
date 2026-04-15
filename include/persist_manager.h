@@ -144,8 +144,13 @@ public:
      */
     bool isCacheUpToDate(const CacheInfo& cacheInfo, const std::string& zipPath);
 
-private:
+    /**
+     * @brief 创建缓存目录
+     * @return 是否成功
+     */
     bool createCacheDirectory();
+
+private:
 
     bool readHeader(const std::string& cachePath, BlacklistChecker::PersistHeader& header);
     bool writeHeader(std::ofstream& ofs, const std::string& zipPath,

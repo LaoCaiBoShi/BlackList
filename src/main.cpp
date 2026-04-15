@@ -314,7 +314,10 @@ int main(int argc, char* argv[]) {
                         std::cout << "\nSaving cache to: " << cachePath << std::endl;
                         LOG_INFO("Saving cache to: %s", cachePath.c_str());
 
-                        if (!service.saveToPersistFile(cachePath)) {
+                        if (!pm.createCacheDirectory()) {
+                            LOG_ERROR("Failed to create cache directory");
+                            std::cerr << "[ERROR] Cache directory creation failed!" << std::endl;
+                        } else if (!service.saveToPersistFile(cachePath)) {
                             LOG_ERROR("Failed to save cache to: %s", cachePath.c_str());
                             std::cerr << "[ERROR] Cache save failed!" << std::endl;
                         } else {
