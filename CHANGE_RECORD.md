@@ -2,13 +2,33 @@
 
 ## 版本信息
 
-**当前版本**：v2026-04-14-10
+**当前版本**：v2026-04-14-11
 **最后更新**：2026-04-14
-**Git提交**：`6f1b1ac`
+**Git提交**：`00c8d05`
 
 ---
 
 ## 2026-04-14
+
+### 版本：v2026-04-14-11
+
+**Git提交**：`00c8d05`
+
+**改动**：修复持久化缓存未实际保存的问题
+
+---
+
+### 问题描述
+
+代码只打印了 "Saving cache..." 但没有实际调用 `saveToPersistFile()` 方法，导致程序退出后缓存文件未创建。
+
+### 修复内容
+
+| 文件 | 修复 |
+|------|------|
+| `include/blacklist_service.h` | 添加 `saveToPersistFile()` 声明 |
+| `src/core/blacklist_service.cpp` | 实现 `saveToPersistFile()` 方法 |
+| `src/main.cpp` | 调用 `service.saveToPersistFile(cachePath)` |
 
 ### 版本：v2026-04-14-10
 
