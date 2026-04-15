@@ -41,16 +41,22 @@ QueryMode selectQueryMode() {
     std::getline(std::cin, input);
     input.erase(0, input.find_first_not_of(" \t\r\n"));
 
+    QueryMode mode;
     if (input.empty() || input == "2" || input == "cardinfo" || input == "CARDINFO_ONLY") {
-        return QueryMode::CARDINFO_ONLY;
+        mode = QueryMode::CARDINFO_ONLY;
     } else if (input == "1" || input == "bloom" || input == "BLOOM_ONLY") {
-        return QueryMode::BLOOM_ONLY;
+        mode = QueryMode::BLOOM_ONLY;
     } else if (input == "3" || input == "full" || input == "BLOOM_AND_CARDINFO") {
-        return QueryMode::BLOOM_AND_CARDINFO;
+        mode = QueryMode::BLOOM_AND_CARDINFO;
     } else {
         std::cout << "Invalid input, using default: CARDINFO_ONLY" << std::endl;
-        return QueryMode::CARDINFO_ONLY;
+        mode = QueryMode::CARDINFO_ONLY;
     }
+
+    const char* modeNames[] = {"BLOOM_ONLY", "CARDINFO_ONLY", "BLOOM_AND_CARDINFO"};
+    LOG_INFO("Query mode selected: %s", modeNames[static_cast<int>(mode)]);
+
+    return mode;
 }
 
 void queryCardLoop(BlacklistService& service) {
