@@ -56,11 +56,25 @@ std::string PersistManager::getCacheDirectory() {
     if (homeDir.empty()) {
         return ".\\cache";
     }
-    return homeDir + "/.blacklist_cache";
+#if defined(_WIN32) || defined(_WIN64)
+    if (homeDir.back() != '\\' && homeDir.back() != '/') {
+        homeDir += '\\';
+    }
+    return homeDir + ".blacklist_cache";
+#else
+    if (homeDir.back() != '/') {
+        homeDir += '/';
+    }
+    return homeDir + ".blacklist_cache";
+#endif
 }
 
 std::string PersistManager::getCacheFilePath(const std::string& versionDate) {
+#if defined(_WIN32) || defined(_WIN64)
+    return getCacheDirectory() + "\\blacklist_cache_v" + versionDate + ".dat";
+#else
     return getCacheDirectory() + "/blacklist_cache_v" + versionDate + ".dat";
+#endif
 }
 
 std::string PersistManager::findLatestCache() {
@@ -74,8 +88,14 @@ std::string PersistManager::findLatestCache() {
     std::string latestPath;
     time_t latestTime = 0;
 
+#if defined(_WIN32) || defined(_WIN64)
+    std::string searchPattern = cacheDir + "\\*.dat";
+#else
+    std::string searchPattern = cacheDir + "/*.dat";
+#endif
+
     WIN32_FIND_DATAA findData;
-    HANDLE hFind = FindFirstFileA((cacheDir + "/*.dat").c_str(), &findData);
+    HANDLE hFind = FindFirstFileA(searchPattern.c_str(), &findData);
     if (hFind == INVALID_HANDLE_VALUE) {
         return "";
     }
@@ -91,7 +111,11 @@ std::string PersistManager::findLatestCache() {
             continue;
         }
 
+#if defined(_WIN32) || defined(_WIN64)
+        std::string fullPath = cacheDir + "\\" + filename;
+#else
         std::string fullPath = cacheDir + "/" + filename;
+#endif
         struct stat fileStat;
         if (stat(fullPath.c_str(), &fileStat) == 0) {
             if (fileStat.st_mtime > latestTime) {
