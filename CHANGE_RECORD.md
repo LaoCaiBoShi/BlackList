@@ -2,13 +2,98 @@
 
 ## 版本信息
 
-**当前版本**：v2026-04-14-9
+**当前版本**：v2026-04-14-10
 **最后更新**：2026-04-14
-**Git提交**：`ba1338d`
+**Git提交**：`6f1b1ac`
 
 ---
 
 ## 2026-04-14
+
+### 版本：v2026-04-14-10
+
+**Git提交**：`6f1b1ac`
+
+**改动**：添加持久化管理器支持快速缓存加载
+
+---
+
+### 持久化管理器功能
+
+新增 `PersistManager` 类，实现黑名单数据的序列化和反序列化。
+
+**核心功能**：
+
+| 方法 | 功能 |
+|------|------|
+| `extractVersionFromFilename()` | 从ZIP文件名提取版本日期（YYYYMMDD） |
+| `checkCacheAvailable()` | 检查是否有可用缓存 |
+| `findLatestCache()` | 查找最新的缓存文件 |
+| `getCacheInfo()` | 获取缓存信息（不加载数据） |
+| `save()` | 保存黑名单到缓存文件 |
+| `calculateFileMd5()` | 计算文件MD5 |
+
+**版本提取规则**：
+
+```
+文件名：4401S0008440030010_DownLoad_20230620_CardBlacklistAll_...
+                ↑ 版本日期在第3个字段
+
+extractVersionFromFilename() 返回："20230620"
+```
+
+**缓存文件命名**：
+
+```
+blacklist_cache_v{版本日期}.dat
+示例：blacklist_cache_v20230620.dat
+```
+
+**新增文件**：
+
+| 文件 | 说明 |
+|------|------|
+| `include/persist_manager.h` | 持久化管理器头文件 |
+| `src/core/persist_manager.cpp` | 持久化管理器实现 |
+
+**修改文件**：
+
+| 文件 | 改动 |
+|------|------|
+| `include/blacklist_service.h` | 添加 `loadFromPersistFile()` 声明 |
+| `src/core/blacklist_service.cpp` | 实现 `loadFromPersistFile()` 方法 |
+| `src/main.cpp` | 实现新启动逻辑 |
+| `CMakeLists.txt` | 添加 `persist_manager.cpp` |
+
+---
+
+### 启动流程变更
+
+**新启动流程**：
+
+```
+程序启动
+    │
+    ├─ 检查缓存目录 ~/.blacklist_cache/
+    │
+    ├─ 有缓存 ──→ 直接加载缓存 ──→ 进入查询模式
+    │                  │
+    │                  └─ 显示: "Cache loaded successfully! Load time: xxx ms"
+    │
+    └─ 无缓存 ──→ 等待输入ZIP地址 ──→ 加载 ──→ 保存缓存 ──→ 进入查询模式
+```
+
+**update 命令优化**：
+
+```
+> update
+Enter new ZIP file path: D:\Data\20230701.zip
+Loading new blacklist...
+Saving cache for version 20230701...
+Update successful!
+```
+
+---
 
 ### 版本：v2026-04-14-9
 
