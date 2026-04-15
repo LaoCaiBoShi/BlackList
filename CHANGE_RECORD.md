@@ -2,19 +2,86 @@
 
 ## 版本信息
 
-**当前版本**：v2026-04-14-6
+**当前版本**：v2026-04-14-7
 **最后更新**：2026-04-14
-**Git提交**：`ffbb533`
+**Git提交**：`59bea17`
 
 ---
 
 ## 2026-04-14
+
+### 版本：v2026-04-14-7
+
+**Git提交**：`59bea17`
+
+**改动**：添加ZIP文件完整性验证，修复异常处理缺口
+
+---
+
+### 新增验证函数
+
+| 函数 | 功能 |
+|------|------|
+| `hasReadPermission()` | 检查文件是否有读取权限 |
+| `isValidZipFile()` | 通过魔数（PK\x03\x04）校验ZIP格式 |
+| `isEmptyFile()` | 检查文件是否为空（大小为0） |
+| `getFileSizeSafe()` | 安全获取文件大小 |
+| `checkDiskSpace()` | 检查磁盘空间是否充足 |
+| `validateZipFile()` | 统一综合验证（空/权限/格式） |
+
+### 验证覆盖的异常
+
+| 异常类型 | 验证函数 | 处理方式 |
+|---------|---------|---------|
+| 文件为空 | `isEmptyFile()` | 报告并跳过 |
+| 无读取权限 | `hasReadPermission()` | 报告并跳过 |
+| ZIP格式损坏 | `isValidZipFile()` | 报告并跳过 |
+| 文件不存在 | `std::filesystem::exists()` | 报告并跳过 |
+| 磁盘空间不足 | `checkDiskSpace()` | 可扩展支持 |
+
+### 集成位置
+
+- **main.cpp**: 加载前验证输入ZIP文件
+- **zip_utils.cpp**: 收集省份ZIP时验证每个文件
+
+### 修改文件
+
+| 文件 | 改动 |
+|------|------|
+| `include/system_utils.h` | 添加6个验证函数声明 |
+| `src/core/system_utils.cpp` | 实现所有验证函数 |
+| `src/main.cpp` | 集成 `validateZipFile()` |
+| `src/zip/zip_utils.cpp` | 集成 `validateZipFile()` |
+
+---
 
 ### 版本：v2026-04-14-6
 
 **Git提交**：`ffbb533`
 
 **改动**：简化查询结果显示，修复中文编码问题
+
+---
+
+### 查询结果显示优化
+
+**问题**：终端编码问题导致中文显示乱码
+
+**解决方案**：移除中文，改用纯英文标签显示
+
+**新输出格式**：
+```
+Result (BLOOM_FAST_REJECT): NOT BLACKLISTED
+Result (BLOOM_ONLY): BLACKLISTED
+Result (CARDINFO): BLACKLISTED
+```
+
+**标签说明**：
+| 标签 | 含义 |
+|------|------|
+| BLOOM_FAST_REJECT | 布隆过滤器快速拒绝（确定不在黑名单） |
+| BLOOM_ONLY | 布隆过滤器判断（可能误判） |
+| CARDINFO | CardInfo精确确认 |
 
 ---
 
