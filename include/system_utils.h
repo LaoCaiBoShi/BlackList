@@ -118,4 +118,48 @@ void adjustThreadConfig(ThreadConfig& config, const PerformanceStats& stats);
  */
 ThreadConfig getFallbackConfig();
 
+/**
+ * @brief 检查文件是否有读取权限
+ * @param filePath 文件路径
+ * @return 是否有读取权限
+ */
+bool hasReadPermission(const std::string& filePath);
+
+/**
+ * @brief 检查是否为有效的ZIP文件（通过魔数校验）
+ * @param filePath 文件路径
+ * @return 是否为有效的ZIP文件
+ */
+bool isValidZipFile(const std::string& filePath);
+
+/**
+ * @brief 检查文件是否为空
+ * @param filePath 文件路径
+ * @return 文件大小是否为0
+ */
+bool isEmptyFile(const std::string& filePath);
+
+/**
+ * @brief 获取文件大小
+ * @param filePath 文件路径
+ * @return 文件大小（字节），失败返回0
+ */
+uint64_t getFileSizeSafe(const std::string& filePath);
+
+/**
+ * @brief 检查磁盘空间是否充足
+ * @param path 目录路径
+ * @param requiredBytes 需要的字节数
+ * @return 空间是否充足
+ */
+bool checkDiskSpace(const std::string& path, uint64_t requiredBytes);
+
+/**
+ * @brief 统一验证ZIP文件（综合检查）
+ * @param filePath 文件路径
+ * @param errorMsg 错误信息输出
+ * @return 是否验证通过
+ */
+bool validateZipFile(const std::string& filePath, std::string* errorMsg = nullptr);
+
 #endif // SYSTEM_UTILS_H

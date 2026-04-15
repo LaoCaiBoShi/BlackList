@@ -1,5 +1,6 @@
 #define _CRT_SECURE_NO_WARNINGS
 #include "blacklist_service.h"
+#include "system_utils.h"
 #include "log_manager.h"
 #include <iostream>
 #include <fstream>
@@ -173,40 +174,53 @@ int main(int argc, char* argv[]) {
             std::cout << "  C:\\Users\\Admin\\Downloads\\data.zip" << std::endl;
             std::cout << "==========================================" << std::endl;
         } else {
-            QueryMode mode = selectQueryMode();
-
-            const char* modeName[] = {"BLOOM_ONLY", "CARDINFO_ONLY", "BLOOM_AND_CARDINFO"};
-            std::cout << "Selected mode: " << modeName[static_cast<int>(mode)] << std::endl;
-            LOG_INFO("User selected mode: %s", modeName[static_cast<int>(mode)]);
-
-            LOG_INFO("File validation passed: %s", zipPath.c_str());
-            LOG_INFO("Initializing BlacklistService...");
-            BlacklistService service(mode);
-            bool initSuccess = service.initialize(zipPath, mode);
-
-            std::cout << "\n==========================================" << std::endl;
-            std::cout << "Initialization Result" << std::endl;
-            std::cout << "==========================================" << std::endl;
-            std::cout << "Status: " << service.getStatusString() << std::endl;
-            std::cout << "Loaded count: " << service.getBlacklistSize() << std::endl;
-
-            if (initSuccess && service.getBlacklistSize() > 0) {
-                std::cout << "\nBlacklist loaded successfully!" << std::endl;
-                LOG_INFO("BlacklistService initialized successfully, records: %lld", (long long)service.getBlacklistSize());
-                queryCardLoop(service);
+            std::string validationError;
+            if (!validateZipFile(zipPath, &validationError)) {
+                std::cout << "\n==========================================" << std::endl;
+                std::cout << "Error: Invalid ZIP file" << std::endl;
+                std::cout << "==========================================" << std::endl;
+                std::cout << "Validation failed: " << validationError << std::endl;
+                std::cout << "\nPossible causes:" << std::endl;
+                std::cout << "  - File is empty" << std::endl;
+                std::cout << "  - File is not a valid ZIP format" << std::endl;
+                std::cout << "  - No read permission" << std::endl;
+                std::cout << "==========================================" << std::endl;
             } else {
-                std::cout << "\nInitialization failed. Exiting..." << std::endl;
-                std::cout << "Error: " << service.getLastError() << std::endl;
-                LOG_ERROR("Initialization failed: %s", service.getLastError().c_str());
-                return 1;
+                QueryMode mode = selectQueryMode();
+
+                const char* modeName[] = {"BLOOM_ONLY", "CARDINFO_ONLY", "BLOOM_AND_CARDINFO"};
+                std::cout << "Selected mode: " << modeName[static_cast<int>(mode)] << std::endl;
+                LOG_INFO("User selected mode: %s", modeName[static_cast<int>(mode)]);
+
+                LOG_INFO("File validation passed: %s", zipPath.c_str());
+                LOG_INFO("Initializing BlacklistService...");
+                BlacklistService service(mode);
+                bool initSuccess = service.initialize(zipPath, mode);
+
+                std::cout << "\n==========================================" << std::endl;
+                std::cout << "Initialization Result" << std::endl;
+                std::cout << "==========================================" << std::endl;
+                std::cout << "Status: " << service.getStatusString() << std::endl;
+                std::cout << "Loaded count: " << service.getBlacklistSize() << std::endl;
+
+                if (initSuccess && service.getBlacklistSize() > 0) {
+                    std::cout << "\nBlacklist loaded successfully!" << std::endl;
+                    LOG_INFO("BlacklistService initialized successfully, records: %lld", (long long)service.getBlacklistSize());
+                    queryCardLoop(service);
+                } else {
+                    std::cout << "\nInitialization failed. Exiting..." << std::endl;
+                    std::cout << "Error: " << service.getLastError() << std::endl;
+                    LOG_ERROR("Initialization failed: %s", service.getLastError().c_str());
+                    return 1;
+                }
+
+                auto endTime = std::chrono::steady_clock::now();
+                auto duration = std::chrono::duration_cast<std::chrono::milliseconds>(endTime - startTime).count();
+                LOG_INFO("Program exiting normally, total runtime: %lld ms", (long long)duration);
+                std::cout << "Total runtime: " << duration << " ms" << std::endl;
+
+                return 0;
             }
-
-            auto endTime = std::chrono::steady_clock::now();
-            auto duration = std::chrono::duration_cast<std::chrono::milliseconds>(endTime - startTime).count();
-            LOG_INFO("Program exiting normally, total runtime: %lld ms", (long long)duration);
-            std::cout << "Total runtime: " << duration << " ms" << std::endl;
-
-            return 0;
         }
 
         std::cout << "\nPlease enter a valid ZIP file path (or 'quit' to exit): ";

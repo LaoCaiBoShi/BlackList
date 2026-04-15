@@ -822,9 +822,18 @@ std::vector<ProvinceZipInfo> collectProvinceZips(const std::string& directory) {
         do {
             std::string fileName = findData.cFileName;
             std::string filePath = directory + "\\" + fileName;
+
+            // 验证省份ZIP文件
+            std::string validationError;
+            if (!validateZipFile(filePath, &validationError)) {
+                std::cerr << "[WARN] Skipping invalid province ZIP: " << fileName << std::endl;
+                std::cerr << "[WARN] Reason: " << validationError << std::endl;
+                continue;
+            }
+
             int provinceCode = extractProvinceCode(fileName);
             uint64_t fileSize = getFileSize(filePath);
-            
+
             provinceZips.push_back({provinceCode, filePath, fileSize, {}});
             std::cout << "Found province zip: " << fileName << " (province code: " << provinceCode << ", size: " << fileSize << ")" << std::endl;
         } while (FindNextFileA(hFind, &findData));

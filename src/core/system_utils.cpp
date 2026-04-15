@@ -1,13 +1,17 @@
 #include "system_utils.h"
+#include "log_manager.h"
 
 #if defined(_WIN32) || defined(_WIN64)
     #include <windows.h>
     #include <psapi.h>
     #include <winbase.h>
+    #include <AclAPI.h>
+    #pragma comment(lib, "advapi32.lib")
 #elif defined(__linux__)
     #include <sys/sysinfo.h>
     #include <sys/stat.h>
     #include <unistd.h>
+    #include <fcntl.h>
 #elif defined(__APPLE__)
     #include <sys/sysctl.h>
     #include <sys/stat.h>
@@ -15,7 +19,8 @@
 #endif
 
 #include <iostream>
-#include <chrono>
+#include <fstream>
+#include <cstring>
 
 /**
  * @brief 获取CPU核心数
@@ -294,4 +299,195 @@ BloomFilterConfig calculateBloomFilterConfig(BloomFilterPrecision precision,
               << std::endl;
 
     return config;
+}
+
+/**
+ * @brief 检查文件是否有读取权限
+ */
+bool hasReadPermission(const std::string& filePath) {
+#if defined(_WIN32) || defined(_WIN64)
+    DWORD attrs = GetFileAttributesA(filePath.c_str());
+    if (attrs == INVALID_FILE_ATTRIBUTES) {
+        DWORD err = GetLastError();
+        std::cerr << "[Permission Check] File not accessible: " << filePath
+                  << ", Error code: " << err << std::endl;
+        return false;
+    }
+
+    HANDLE hFile = CreateFileA(
+        filePath.c_str(),
+        GENERIC_READ,
+        FILE_SHARE_READ | FILE_SHARE_WRITE,
+        NULL,
+        OPEN_EXISTING,
+        FILE_ATTRIBUTE_NORMAL,
+        NULL
+    );
+
+    if (hFile == INVALID_HANDLE_VALUE) {
+        DWORD err = GetLastError();
+        if (err == ERROR_ACCESS_DENIED) {
+            std::cerr << "[Permission Check] Access denied: " << filePath << std::endl;
+        } else if (err == ERROR_SHARING_VIOLATION) {
+            std::cerr << "[Permission Check] File is locked: " << filePath << std::endl;
+        }
+        return false;
+    }
+
+    CloseHandle(hFile);
+    return true;
+#elif defined(__linux__)
+    return access(filePath.c_str(), R_OK) == 0;
+#elif defined(__APPLE__)
+    return access(filePath.c_str(), R_OK) == 0;
+#else
+    return true;
+#endif
+}
+
+/**
+ * @brief 检查是否为有效的ZIP文件（通过魔数校验）
+ */
+bool isValidZipFile(const std::string& filePath) {
+    std::ifstream file(filePath, std::ios::binary);
+    if (!file.is_open()) {
+        std::cerr << "[ZIP Validation] Cannot open file: " << filePath << std::endl;
+        return false;
+    }
+
+    char magic[4];
+    if (!file.read(magic, 4)) {
+        std::cerr << "[ZIP Validation] Cannot read magic bytes: " << filePath << std::endl;
+        return false;
+    }
+
+    bool valid = (memcmp(magic, "PK\x03\x04", 4) == 0) ||   // ZIP文件
+                 (memcmp(magic, "PK\x05\x06", 4) == 0) ||   // ZIP空归档
+                 (memcmp(magic, "PK\x07\x08", 4) == 0);    // ZIP spanned
+
+    if (!valid) {
+        std::cerr << "[ZIP Validation] Invalid ZIP magic: " << filePath
+                  << ", bytes: " << std::hex
+                  << (int)(unsigned char)magic[0] << " "
+                  << (int)(unsigned char)magic[1] << " "
+                  << (int)(unsigned char)magic[2] << " "
+                  << (int)(unsigned char)magic[3]
+                  << std::dec << std::endl;
+    }
+
+    return valid;
+}
+
+/**
+ * @brief 检查文件是否为空
+ */
+bool isEmptyFile(const std::string& filePath) {
+    uint64_t size = getFileSizeSafe(filePath);
+    if (size == 0) {
+        std::cerr << "[Size Check] File is empty: " << filePath << std::endl;
+        return true;
+    }
+    return false;
+}
+
+/**
+ * @brief 获取文件大小
+ */
+uint64_t getFileSizeSafe(const std::string& filePath) {
+#if defined(_WIN32) || defined(_WIN64)
+    WIN32_FILE_ATTRIBUTE_DATA fileInfo;
+    if (GetFileAttributesExA(filePath.c_str(), GetFileExInfoStandard, &fileInfo)) {
+        LARGE_INTEGER size;
+        size.HighPart = fileInfo.nFileSizeHigh;
+        size.LowPart = fileInfo.nFileSizeLow;
+        return size.QuadPart;
+    }
+    return 0;
+#elif defined(__linux__)
+    struct stat st;
+    if (stat(filePath.c_str(), &st) == 0) {
+        return st.st_size;
+    }
+    return 0;
+#elif defined(__APPLE__)
+    struct stat st;
+    if (stat(filePath.c_str(), &st) == 0) {
+        return st.st_size;
+    }
+    return 0;
+#else
+    return 0;
+#endif
+}
+
+/**
+ * @brief 检查磁盘空间是否充足
+ */
+bool checkDiskSpace(const std::string& path, uint64_t requiredBytes) {
+#if defined(_WIN32) || defined(_WIN64)
+    ULARGE_INTEGER freeBytes, totalBytes, totalFreeBytes;
+    if (GetDiskFreeSpaceExA(path.c_str(), &freeBytes, &totalBytes, &totalFreeBytes)) {
+        if (freeBytes.QuadPart < requiredBytes) {
+            std::cerr << "[Disk Space] Insufficient disk space in: " << path << std::endl;
+            std::cerr << "[Disk Space] Required: " << requiredBytes
+                      << ", Available: " << freeBytes.QuadPart << std::endl;
+            return false;
+        }
+        return true;
+    }
+    std::cerr << "[Disk Space] Cannot query disk space for: " << path << std::endl;
+    return false;
+#elif defined(__linux__)
+    struct statvfs statvfsBuf;
+    if (statvfs(path.c_str(), &statvfsBuf) == 0) {
+        uint64_t availableBytes = statvfsBuf.f_bavail * statvfsBuf.f_frsize;
+        if (availableBytes < requiredBytes) {
+            std::cerr << "[Disk Space] Insufficient disk space in: " << path << std::endl;
+            return false;
+        }
+        return true;
+    }
+    return false;
+#elif defined(__APPLE__)
+    struct statfs statfsBuf;
+    if (statfs(path.c_str(), &statfsBuf) == 0) {
+        uint64_t availableBytes = statfsBuf.f_bavail * statfsBuf.f_bsize;
+        if (availableBytes < requiredBytes) {
+            std::cerr << "[Disk Space] Insufficient disk space in: " << path << std::endl;
+            return false;
+        }
+        return true;
+    }
+    return false;
+#else
+    return true;
+#endif
+}
+
+/**
+ * @brief 统一验证ZIP文件（综合检查）
+ */
+bool validateZipFile(const std::string& filePath, std::string* errorMsg) {
+    if (filePath.empty()) {
+        if (errorMsg) *errorMsg = "File path is empty";
+        std::cerr << "[ZIP Validation] " << *errorMsg << std::endl;
+        return false;
+    }
+
+    if (isEmptyFile(filePath)) {
+        if (errorMsg) *errorMsg = "File is empty: " + filePath;
+        return false;
+    }
+
+    if (!hasReadPermission(filePath)) {
+        if (errorMsg) *errorMsg = "No read permission: " + filePath;
+        return false;
+    }
+
+    if (!isValidZipFile(filePath)) {
+        if (errorMsg) *errorMsg = "Invalid ZIP format: " + filePath;
+        return false;
+    }
+
+    return true;
 }
