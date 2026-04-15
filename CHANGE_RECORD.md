@@ -2,13 +2,67 @@
 
 ## 版本信息
 
-**当前版本**：v2026-04-14-8
+**当前版本**：v2026-04-14-9
 **最后更新**：2026-04-14
-**Git提交**：`f81a784`
+**Git提交**：`ba1338d`
 
 ---
 
 ## 2026-04-14
+
+### 版本：v2026-04-14-9
+
+**Git提交**：`ba1338d`
+
+**改动**：添加update命令支持热更新黑名单
+
+---
+
+### update命令功能
+
+在查询循环中支持 `update` 或 `reload` 命令，实现热更新黑名单数据。
+
+**使用方式**：
+```
+> update
+--- Update Blacklist ---
+Enter new ZIP file path: D:\Data\new_blacklist.zip
+Select mode:
+  0: BLOOM_ONLY (fast, may have false positive)
+  1: CARDINFO_ONLY (precise, higher memory)
+  2: BLOOM_AND_CARDINFO (balanced, default)
+Enter mode (0-2, default 2): 2
+
+Loading new blacklist...
+[BlacklistService] Updating blacklist...
+[BlacklistService] Switched to mode: BLOOM_AND_CARDINFO
+...
+Update successful!
+Records: 50000000
+```
+
+**新增方法**：
+
+```cpp
+// BlacklistService 新增
+bool update(const std::string& zipPath, QueryMode mode);
+```
+
+**实现逻辑**：
+1. 销毁旧的 `BlacklistChecker` 对象
+2. 创建新的 `BlacklistChecker`（可切换模式）
+3. 加载新的黑名单数据
+4. 更新服务状态为 READY
+
+**文件修改**：
+
+| 文件 | 改动 |
+|------|------|
+| `include/blacklist_service.h` | 添加 `update()` 方法声明 |
+| `src/core/blacklist_service.cpp` | 实现 `update()` 方法 |
+| `src/main.cpp` | 添加 `update`/`reload` 命令处理 |
+
+---
 
 ### 版本：v2026-04-14-8
 
