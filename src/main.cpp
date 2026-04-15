@@ -310,8 +310,10 @@ int main(int argc, char* argv[]) {
 
                     std::string versionDate = PersistManager::extractVersionFromFilename(zipPath);
                     if (!versionDate.empty()) {
-                        std::cout << "\nSaving cache for version " << versionDate << "..." << std::endl;
-                        LOG_INFO("Saving cache for version: %s", versionDate.c_str());
+                        std::string cachePath = PersistManager::getCacheFilePath(versionDate);
+                        std::cout << "\nSaving cache to: " << cachePath << std::endl;
+                        LOG_INFO("Saving cache to: %s", cachePath.c_str());
+                        service.saveToPersistFile(cachePath);
                     }
 
                     queryCardLoop(service);

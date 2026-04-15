@@ -31,6 +31,7 @@ public:
     bool initialize(const std::string& zipPath, QueryMode mode = QueryMode::CARDINFO_ONLY);
     bool update(const std::string& zipPath, QueryMode mode);
     bool loadFromPersistFile(const std::string& persistPath);
+    bool saveToPersistFile(const std::string& persistPath);
     bool isBlacklisted(const std::string& cardId);
     QueryResult checkCard(const std::string& cardId);
     Status getStatus() const;

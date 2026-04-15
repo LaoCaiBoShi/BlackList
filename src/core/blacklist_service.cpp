@@ -149,6 +149,28 @@ bool BlacklistService::loadFromPersistFile(const std::string& persistPath) {
     }
 }
 
+bool BlacklistService::saveToPersistFile(const std::string& persistPath) {
+    auto startTime = std::chrono::steady_clock::now();
+
+    std::cout << "[BlacklistService] Saving to persist file..." << std::endl;
+    LOG_INFO("BlacklistService saving to persist file: %s", persistPath.c_str());
+
+    bool success = checker_->saveToPersistFile(persistPath);
+
+    if (success) {
+        auto duration = std::chrono::duration_cast<std::chrono::milliseconds>(
+            std::chrono::steady_clock::now() - startTime).count();
+
+        std::cout << "[BlacklistService] Persist save completed in " << duration << " ms" << std::endl;
+        LOG_INFO("Persist save completed in %lld ms", (long long)duration);
+        return true;
+    } else {
+        std::cerr << "[BlacklistService] Failed to save to persist file" << std::endl;
+        LOG_ERROR("Persist save failed");
+        return false;
+    }
+}
+
 bool BlacklistService::isBlacklisted(const std::string& cardId) {
     return checker_->isBlacklisted(cardId);
 }
