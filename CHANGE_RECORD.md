@@ -2,39 +2,89 @@
 
 ## 版本信息
 
-**当前版本**：v2026-04-14-11
+**当前版本**：v2026-04-14-12
 **最后更新**：2026-04-14
-**Git提交**：`00c8d05`
+**Git提交**：`1df5a6e`
 
 ---
 
 ## 2026-04-14
 
-### 版本：v2026-04-14-11
+### 版本：v2026-04-14-12
 
-**Git提交**：`00c8d05`
+**Git提交**：`1df5a6e`
 
-**改动**：修复持久化缓存未实际保存的问题
+**改动**：从ZIP文件名自动提取并设置版本信息
 
 ---
 
 ### 问题描述
 
-代码只打印了 "Saving cache..." 但没有实际调用 `saveToPersistFile()` 方法，导致程序退出后缓存文件未创建。
+执行 `status` 命令时显示 `Version:` 为空，因为从 ZIP 加载时未设置版本信息。
 
 ### 修复内容
 
 | 文件 | 修复 |
 |------|------|
-| `include/blacklist_service.h` | 添加 `saveToPersistFile()` 声明 |
-| `src/core/blacklist_service.cpp` | 实现 `saveToPersistFile()` 方法 |
-| `src/main.cpp` | 调用 `service.saveToPersistFile(cachePath)` |
+| `src/core/blacklist_service.cpp` | 添加 `extractVersionFromFilename()` 函数 |
+| `src/core/blacklist_service.cpp` | `initialize()` 成功后自动提取并设置版本 |
+| `src/core/blacklist_service.cpp` | `update()` 成功后自动提取并设置版本 |
+
+### 版本信息来源
+
+```
+ZIP文件名: 4401S0008440030010_DownLoad_20230620_CardBlacklistAll_...
+                              ↑
+                              第3个字段 = "20230620"
+```
+
+---
+
+### 版本：v2026-04-14-11
+
+**Git提交**：`3317fe4`
+
+**改动**：update命令后同步保存缓存
+
+---
+
+### 问题描述
+
+执行 update 加载新 ZIP 后，持久化文件未更新，重启程序会加载旧数据。
+
+### 修复内容
+
+| 文件 | 修复 |
+|------|------|
+| `src/main.cpp` | `queryCardLoop()` 增加 `PersistManager& pm` 参数 |
+| `src/main.cpp` | `update` 成功后同步保存新缓存 |
+
+### 设计优点
+
+- **职责分离**：`update()` 只负责更新内存数据
+- **缓存由调用者控制**：`main.cpp` 决定何时保存
+- **灵活性高**：可轻松添加 `--no-cache` 等开关
+
+---
 
 ### 版本：v2026-04-14-10
 
-**Git提交**：`6f1b1ac`
+**Git提交**：`23e3971`
 
-**改动**：添加持久化管理器支持快速缓存加载
+**改动**：修复持久化保存失败问题
+
+---
+
+### 问题描述
+
+`main.cpp` 直接调用 `service.saveToPersistFile()` 跳过了目录创建，导致文件打开失败。
+
+### 修复内容
+
+| 文件 | 修复 |
+|------|------|
+| `src/main.cpp` | 在保存前先调用 `pm.createCacheDirectory()` |
+| `include/persist_manager.h` | 将 `createCacheDirectory()` 从 private 移到 public |
 
 ---
 
