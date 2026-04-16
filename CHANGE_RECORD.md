@@ -2,13 +2,42 @@
 
 ## 版本信息
 
-**当前版本**：v2026-04-14-12
+**当前版本**：v2026-04-14-13
 **最后更新**：2026-04-14
-**Git提交**：`1df5a6e`
+**Git提交**：`89c8024`
 
 ---
 
 ## 2026-04-14
+
+### 版本：v2026-04-14-13
+
+**Git提交**：`89c8024`
+
+**改动**：扩大versionInfo从6字节到8字节支持YYYYMMDD格式
+
+---
+
+### 问题描述
+
+版本号只显示6位如`202306`，应为8位如`20230620`。
+
+### 修改内容
+
+| 文件 | 修改 |
+|------|------|
+| `blacklist_checker.h` | `BlacklistChecker::versionInfo` 从6字节改为8字节 |
+| `blacklist_checker.h` | `PersistHeader::versionInfo` 从6字节改为8字节 |
+| `blacklist_checker.h` | `reserved` 从26字节改为24字节（保持Header 64字节） |
+| `blacklist_checker.cpp` | `setVersionInfo()` 支持8字节并先清零 |
+| `blacklist_checker.cpp` | `getVersionInfo()` 去除尾部空格 |
+| `blacklist_checker.cpp` | `memcpy` 大小从6改为8 |
+
+### 注意事项
+
+**旧缓存文件结构不兼容，需重新从ZIP加载**
+
+---
 
 ### 版本：v2026-04-14-12
 
