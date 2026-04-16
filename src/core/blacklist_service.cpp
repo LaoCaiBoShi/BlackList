@@ -8,6 +8,41 @@
 #include "log_manager.h"
 #include <iostream>
 #include <chrono>
+#include <sstream>
+#include <algorithm>
+#include <ctime>
+#include <vector>
+
+static std::string extractVersionFromFilename(const std::string& filename) {
+    if (filename.empty()) {
+        return "";
+    }
+
+    std::string name = filename;
+    std::replace(name.begin(), name.end(), '\\', '/');
+
+    size_t pos = name.find_last_of('/');
+    if (pos != std::string::npos) {
+        name = name.substr(pos + 1);
+    }
+
+    std::vector<std::string> parts;
+    std::stringstream ss(name);
+    std::string part;
+    while (std::getline(ss, part, '_')) {
+        parts.push_back(part);
+    }
+
+    if (parts.size() >= 3) {
+        const std::string& dateStr = parts[2];
+        if (dateStr.length() == 8 &&
+            std::all_of(dateStr.begin(), dateStr.end(), ::isdigit)) {
+            return dateStr;
+        }
+    }
+
+    return "";
+}
 
 BlacklistService::BlacklistService(QueryMode mode)
     : status_(Status::UNINITIALIZED) {
@@ -37,6 +72,12 @@ bool BlacklistService::initialize(const std::string& zipPath, QueryMode mode) {
     bool success = loadBlacklistFromCompressedFile(zipPath, *checker_, loaded, invalid);
 
     if (success) {
+        std::string version = extractVersionFromFilename(zipPath);
+        if (!version.empty()) {
+            checker_->setVersionInfo(version);
+            LOG_INFO("Version set from filename: %s", version.c_str());
+        }
+
         std::cout << "[BlacklistService] Loaded " << loaded
                   << " records from ZIP" << std::endl;
 
@@ -84,6 +125,12 @@ bool BlacklistService::update(const std::string& zipPath, QueryMode mode) {
     bool success = loadBlacklistFromCompressedFile(zipPath, *checker_, loaded, invalid);
 
     if (success) {
+        std::string version = extractVersionFromFilename(zipPath);
+        if (!version.empty()) {
+            checker_->setVersionInfo(version);
+            LOG_INFO("Version set from filename: %s", version.c_str());
+        }
+
         auto duration = std::chrono::duration_cast<std::chrono::milliseconds>(
             std::chrono::steady_clock::now() - startTime).count();
 
