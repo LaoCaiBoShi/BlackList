@@ -75,44 +75,44 @@ std::string PersistManager::findLatestCache() {
     using namespace platform;
     std::string cacheDir = getCacheDirectory();
 
-    std::cout << "[DEBUG] findLatestCache: cacheDir=" << cacheDir << std::endl;
+    LOG_DEBUG("findLatestCache: cacheDir=%s", cacheDir.c_str());
 
     if (!FileSystem::instance().directoryExists(cacheDir)) {
-        std::cout << "[DEBUG] findLatestCache: directory does not exist" << std::endl;
+        LOG_DEBUG("findLatestCache: directory does not exist");
         return "";
     }
 
-    std::cout << "[DEBUG] findLatestCache: directory exists" << std::endl;
+    LOG_DEBUG("findLatestCache: directory exists");
 
     std::string latestPath;
     time_t latestTime = 0;
 
     auto files = FileSystem::instance().listFiles(cacheDir, "*.dat");
-    std::cout << "[DEBUG] findLatestCache: found " << files.size() << " .dat files" << std::endl;
+    LOG_DEBUG("findLatestCache: found %zu .dat files", files.size());
 
     for (const auto& file : files) {
         if (file.isDirectory) {
-            std::cout << "[DEBUG] findLatestCache: skipping directory " << file.name << std::endl;
+            LOG_DEBUG("findLatestCache: skipping directory %s", file.name.c_str());
             continue;
         }
 
         if (file.name.find("blacklist_cache_v") != 0) {
-            std::cout << "[DEBUG] findLatestCache: skipping " << file.name << " (wrong prefix)" << std::endl;
+            LOG_DEBUG("findLatestCache: skipping %s (wrong prefix)", file.name.c_str());
             continue;
         }
 
         std::string fullPath = Path::join(cacheDir, file.name);
         time_t fileTime = FileSystem::instance().getFileModifiedTime(fullPath);
-        std::cout << "[DEBUG] findLatestCache: file=" << file.name << " time=" << fileTime << std::endl;
+        LOG_DEBUG("findLatestCache: file=%s time=%ld", file.name.c_str(), (long)fileTime);
 
         if (fileTime > latestTime) {
             latestTime = fileTime;
             latestPath = fullPath;
-            std::cout << "[DEBUG] findLatestCache: new latest=" << latestPath << std::endl;
+            LOG_DEBUG("findLatestCache: new latest=%s", latestPath.c_str());
         }
     }
 
-    std::cout << "[DEBUG] findLatestCache: returning=" << latestPath << std::endl;
+    LOG_DEBUG("findLatestCache: returning=%s", latestPath.c_str());
     return latestPath;
 }
 
