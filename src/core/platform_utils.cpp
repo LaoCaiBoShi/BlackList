@@ -55,7 +55,11 @@ std::vector<FileInfo> FileSystem::listFilesLinux(const std::string& path,
 
         if (!pattern.empty() && pattern != "*") {
             std::string extension = Path::getExtension(name);
-            if (extension != pattern && name != pattern) {
+            std::string comparePattern = pattern;
+            if (!comparePattern.empty() && comparePattern[0] == '*') {
+                comparePattern = comparePattern.substr(1);
+            }
+            if (extension != comparePattern && name != pattern) {
                 continue;
             }
         }
@@ -134,8 +138,12 @@ std::vector<FileInfo> FileSystem::listFiles(const std::string& path,
 
         if (!pattern.empty() && pattern != "*") {
             std::string extension = Path::getExtension(filename);
-            std::cout << "[DEBUG] listFiles Windows: file=" << filename << " extension=" << extension << " pattern=" << pattern << std::endl;
-            if (extension != pattern && filename != pattern) {
+            std::string comparePattern = pattern;
+            if (!comparePattern.empty() && comparePattern[0] == '*') {
+                comparePattern = comparePattern.substr(1);
+            }
+            std::cout << "[DEBUG] listFiles Windows: file=" << filename << " extension=" << extension << " pattern=" << pattern << " comparePattern=" << comparePattern << std::endl;
+            if (extension != comparePattern && filename != pattern) {
                 std::cout << "[DEBUG] listFiles Windows: skipping " << filename << " (extension mismatch)" << std::endl;
                 continue;
             }
