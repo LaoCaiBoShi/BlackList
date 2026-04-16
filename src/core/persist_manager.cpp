@@ -4,13 +4,13 @@
  */
 
 #include "persist_manager.h"
+#include "platform_utils.h"
 #include "log_manager.h"
 #include <fstream>
 #include <sstream>
 #include <iostream>
 #include <chrono>
 #include <algorithm>
-#include <sys/stat.h>
 
 const char PersistManager::MAGIC[5] = "BLCK";
 
@@ -52,100 +52,60 @@ std::string PersistManager::extractVersionFromFilename(const std::string& filena
 }
 
 std::string PersistManager::getCacheDirectory() {
-#if defined(_WIN32) || defined(_WIN64)
-    char exePath[MAX_PATH];
-    if (GetModuleFileNameA(NULL, exePath, MAX_PATH) == 0) {
+    using namespace platform;
+    std::string exePath = FileSystem::instance().getExecutablePath();
+    if (exePath.empty()) {
         return ".\\cache";
     }
 
-    std::string exeStr(exePath);
-    size_t lastSep = exeStr.find_last_of("\\/");
-    if (lastSep == std::string::npos) {
-        return ".\\cache";
-    }
-
-    std::string exeDir = exeStr.substr(0, lastSep);
-    return exeDir + "\\cache";
-#else
-    char exePath[PATH_MAX];
-    if (readlink("/proc/self/exe", exePath, PATH_MAX) <= 0) {
-        return "./cache";
-    }
-
-    std::string exeStr(exePath);
-    size_t lastSep = exeStr.find_last_of('/');
-    if (lastSep == std::string::npos) {
-        return "./cache";
-    }
-
-    return exeStr.substr(0, lastSep) + "/cache";
-#endif
+    std::string exeDir = Path::getDirectory(exePath);
+    return Path::join(exeDir, "cache");
 }
 
 std::string PersistManager::getCacheFilePath(const std::string& versionDate) {
     if (versionDate.empty()) {
         return "";
     }
-#if defined(_WIN32) || defined(_WIN64)
-    return getCacheDirectory() + "\\blacklist_cache_v" + versionDate + ".dat";
-#else
-    return getCacheDirectory() + "/blacklist_cache_v" + versionDate + ".dat";
-#endif
+    using namespace platform;
+    std::string cacheDir = getCacheDirectory();
+    return Path::join(cacheDir, "blacklist_cache_v" + versionDate + ".dat");
 }
 
 std::string PersistManager::findLatestCache() {
+    using namespace platform;
     std::string cacheDir = getCacheDirectory();
 
-    struct stat buffer;
-    if (stat(cacheDir.c_str(), &buffer) != 0) {
+    if (!FileSystem::instance().directoryExists(cacheDir)) {
         return "";
     }
 
     std::string latestPath;
     time_t latestTime = 0;
 
-#if defined(_WIN32) || defined(_WIN64)
-    std::string searchPattern = cacheDir + "\\*.dat";
-#else
-    std::string searchPattern = cacheDir + "/*.dat";
-#endif
+    auto files = FileSystem::instance().listFiles(cacheDir, "*.dat");
 
-    WIN32_FIND_DATAA findData;
-    HANDLE hFind = FindFirstFileA(searchPattern.c_str(), &findData);
-    if (hFind == INVALID_HANDLE_VALUE) {
-        return "";
+    for (const auto& file : files) {
+        if (file.isDirectory) {
+            continue;
+        }
+
+        if (file.name.find("blacklist_cache_v") != 0) {
+            continue;
+        }
+
+        std::string fullPath = Path::join(cacheDir, file.name);
+        time_t fileTime = FileSystem::instance().getFileModifiedTime(fullPath);
+        if (fileTime > latestTime) {
+            latestTime = fileTime;
+            latestPath = fullPath;
+        }
     }
-
-    do {
-        if (findData.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY) {
-            continue;
-        }
-
-        std::string filename(findData.cFileName);
-        if (filename.find("blacklist_cache_v") != 0 ||
-            filename.find(".dat") == std::string::npos) {
-            continue;
-        }
-
-#if defined(_WIN32) || defined(_WIN64)
-        std::string fullPath = cacheDir + "\\" + filename;
-#else
-        std::string fullPath = cacheDir + "/" + filename;
-#endif
-        struct stat fileStat;
-        if (stat(fullPath.c_str(), &fileStat) == 0) {
-            if (fileStat.st_mtime > latestTime) {
-                latestTime = fileStat.st_mtime;
-                latestPath = fullPath;
-            }
-        }
-    } while (FindNextFileA(hFind, &findData));
-    FindClose(hFind);
 
     return latestPath;
 }
 
 CacheLoadResult PersistManager::checkCacheAvailable(const std::string& versionDate) {
+    using namespace platform;
     std::string cachePath;
     if (versionDate.empty()) {
         cachePath = findLatestCache();
@@ -157,8 +117,7 @@ CacheLoadResult PersistManager::checkCacheAvailable(const std::string& versionDa
         return CacheLoadResult::NO_CACHE;
     }
 
-    struct stat buffer;
-    if (stat(cachePath.c_str(), &buffer) != 0) {
+    if (!FileSystem::instance().fileExists(cachePath)) {
         return CacheLoadResult::NO_CACHE;
     }
 
@@ -179,8 +138,8 @@ CacheLoadResult PersistManager::checkCacheAvailable(const std::string& versionDa
 }
 
 bool PersistManager::getCacheInfo(const std::string& cachePath, CacheInfo& info) {
-    struct stat buffer;
-    if (stat(cachePath.c_str(), &buffer) != 0) {
+    using namespace platform;
+    if (!FileSystem::instance().fileExists(cachePath)) {
         return false;
     }
 
@@ -202,13 +161,14 @@ bool PersistManager::getCacheInfo(const std::string& cachePath, CacheInfo& info)
     info.recordCount = header.totalCards;
     info.createdTime = header.createdTime;
     info.provinceCount = header.prefixCount;
-    info.fileSize = static_cast<uint64_t>(buffer.st_size);
+    info.fileSize = FileSystem::instance().getFileSize(cachePath);
     info.zipMd5 = "";
 
     return true;
 }
 
 bool PersistManager::save(const std::string& zipPath, BlacklistChecker& checker) {
+    using namespace platform;
     std::string versionDate = extractVersionFromFilename(zipPath);
     if (versionDate.empty()) {
         std::cerr << "[PersistManager] Cannot extract version from: " << zipPath << std::endl;
@@ -247,6 +207,7 @@ bool PersistManager::save(const std::string& zipPath, BlacklistChecker& checker)
 CacheLoadResult PersistManager::load(const std::string& cachePath,
                                     BlacklistChecker& checker,
                                     QueryMode& mode) {
+    using namespace platform;
     std::cout << "[PersistManager] Loading from cache: " << cachePath << std::endl;
     LOG_INFO("Loading blacklist from cache: %s", cachePath.c_str());
 
@@ -278,16 +239,15 @@ bool PersistManager::isCacheUpToDate(const CacheInfo& cacheInfo, const std::stri
 
 std::string PersistManager::calculateFileMd5(const std::string& filePath) {
 #if defined(_WIN32) || defined(_WIN64)
+    using namespace platform;
+    if (!FileSystem::instance().fileExists(filePath)) {
+        return "";
+    }
+
     HANDLE hFile = CreateFileA(filePath.c_str(), GENERIC_READ,
                                FILE_SHARE_READ, NULL, OPEN_EXISTING,
                                FILE_ATTRIBUTE_NORMAL, NULL);
     if (hFile == INVALID_HANDLE_VALUE) {
-        return "";
-    }
-
-    DWORD dwFileSize = GetFileSize(hFile, NULL);
-    if (dwFileSize == INVALID_FILE_SIZE) {
-        CloseHandle(hFile);
         return "";
     }
 
@@ -338,36 +298,29 @@ std::string PersistManager::calculateFileMd5(const std::string& filePath) {
 }
 
 bool PersistManager::createCacheDirectory() {
+    using namespace platform;
     std::string cacheDir = getCacheDirectory();
 
-#if defined(_WIN32) || defined(_WIN64)
-    if (!CreateDirectoryA(cacheDir.c_str(), NULL)) {
-        DWORD err = GetLastError();
-        if (err != ERROR_ALREADY_EXISTS) {
-            std::cerr << "[PersistManager] Failed to create cache directory: " << cacheDir << std::endl;
-            std::cerr << "[PersistManager] Windows error code: " << err << std::endl;
-            LOG_ERROR("Failed to create cache directory: %s, error code: %lu", cacheDir.c_str(), err);
-            return false;
-        }
+    if (FileSystem::instance().directoryExists(cacheDir)) {
         std::cout << "[PersistManager] Cache directory already exists: " << cacheDir << std::endl;
         LOG_INFO("Cache directory already exists: %s", cacheDir.c_str());
-    } else {
+        return true;
+    }
+
+    if (FileSystem::instance().createDirectory(cacheDir)) {
         std::cout << "[PersistManager] Cache directory created: " << cacheDir << std::endl;
         LOG_INFO("Cache directory created: %s", cacheDir.c_str());
+        return true;
     }
-#else
-    mkdir(cacheDir.c_str(), 0755);
-#endif
 
-    return true;
+    std::cerr << "[PersistManager] Failed to create cache directory: " << cacheDir << std::endl;
+    std::cerr << "[PersistManager] Error: " << FileSystem::instance().getLastErrorString() << std::endl;
+    LOG_ERROR("Failed to create cache directory: %s, error: %s",
+              cacheDir.c_str(), FileSystem::instance().getLastErrorString().c_str());
+    return false;
 }
 
 std::string extractDirectory(const std::string& filePath) {
-    std::string path = filePath;
-    std::replace(path.begin(), path.end(), '\\', '/');
-    size_t pos = path.find_last_of('/');
-    if (pos != std::string::npos) {
-        return path.substr(0, pos);
-    }
-    return ".";
+    using namespace platform;
+    return Path::getDirectory(filePath);
 }
