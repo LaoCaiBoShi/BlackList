@@ -414,20 +414,26 @@ bool BlacklistChecker::loadFromFileToMap(const std::string& filename, std::unord
 
 /**
  * @brief 设置版本信息
- * @param version 版本信息
+ * @param version 版本信息（应为空格或8字符的YYYYMMDD格式）
  */
 void BlacklistChecker::setVersionInfo(const std::string& version) {
-    for (size_t i = 0; i < 6 && i < version.length(); ++i) {
+    std::fill(versionInfo.begin(), versionInfo.end(), ' ');
+    for (size_t i = 0; i < 8 && i < version.length(); ++i) {
         versionInfo[i] = version[i];
     }
 }
 
 /**
  * @brief 获取版本信息
- * @return 版本信息
+ * @return 版本信息（去除尾部空格）
  */
 std::string BlacklistChecker::getVersionInfo() const {
-    return std::string(versionInfo.begin(), versionInfo.end());
+    std::string result(versionInfo.begin(), versionInfo.end());
+    size_t lastNonSpace = result.find_last_not_of(' ');
+    if (lastNonSpace != std::string::npos) {
+        result = result.substr(0, lastNonSpace + 1);
+    }
+    return result;
 }
 
 /**
@@ -832,7 +838,7 @@ bool BlacklistChecker::saveToPersistFile(const std::string& filename) {
         header.totalCards = static_cast<uint32_t>(size());
         header.bloomFilterBits = bloomFilter.getTotalBits();
         header.createdTime = static_cast<uint64_t>(std::time(nullptr));
-        std::memcpy(header.versionInfo, versionInfo.data(), 6);
+        std::memcpy(header.versionInfo, versionInfo.data(), 8);
         file.write(reinterpret_cast<const char*>(&header), sizeof(header));
 
         for (size_t i = 0; i < prefixOffsets.size(); ++i) {
@@ -924,7 +930,7 @@ bool BlacklistChecker::loadFromPersistFile(const std::string& filename) {
         }
 
         bloomFilter.clear();
-        std::memcpy(versionInfo.data(), header.versionInfo, 6);
+        std::memcpy(versionInfo.data(), header.versionInfo, 8);
     }
 
     std::vector<std::pair<uint16_t, std::array<std::vector<CardInfo>, 3>>> loadedData;

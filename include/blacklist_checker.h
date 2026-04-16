@@ -150,8 +150,8 @@ public:
     // 查询模式
     QueryMode queryMode_{QueryMode::BLOOM_AND_CARDINFO};
 
-    // 黑名单版本信息（6字节）
-    std::array<char, 6> versionInfo;
+    // 黑名单版本信息（8字节，YYYYMMDD格式）
+    std::array<char, 8> versionInfo;
 
     // 提取卡片号1-4位（省份+运营商）
     unsigned short getPrefixCode(const std::string& cardId);
@@ -288,8 +288,8 @@ public:
         uint32_t totalCards;        // 12-15: 总卡片数
         uint64_t bloomFilterBits;   // 16-23: 布隆过滤器位数
         uint64_t createdTime;       // 24-31: 创建时间戳
-        char versionInfo[6];        // 32-37: 版本信息
-        char reserved[26];          // 38-63: 保留字段
+        char versionInfo[8];        // 32-39: 版本信息(YYYYMMDD)
+        char reserved[24];          // 40-63: 保留字段
     };
 
     // 省份索引条目（32字节）
