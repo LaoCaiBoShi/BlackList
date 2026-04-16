@@ -75,32 +75,44 @@ std::string PersistManager::findLatestCache() {
     using namespace platform;
     std::string cacheDir = getCacheDirectory();
 
+    std::cout << "[DEBUG] findLatestCache: cacheDir=" << cacheDir << std::endl;
+
     if (!FileSystem::instance().directoryExists(cacheDir)) {
+        std::cout << "[DEBUG] findLatestCache: directory does not exist" << std::endl;
         return "";
     }
+
+    std::cout << "[DEBUG] findLatestCache: directory exists" << std::endl;
 
     std::string latestPath;
     time_t latestTime = 0;
 
     auto files = FileSystem::instance().listFiles(cacheDir, "*.dat");
+    std::cout << "[DEBUG] findLatestCache: found " << files.size() << " .dat files" << std::endl;
 
     for (const auto& file : files) {
         if (file.isDirectory) {
+            std::cout << "[DEBUG] findLatestCache: skipping directory " << file.name << std::endl;
             continue;
         }
 
         if (file.name.find("blacklist_cache_v") != 0) {
+            std::cout << "[DEBUG] findLatestCache: skipping " << file.name << " (wrong prefix)" << std::endl;
             continue;
         }
 
         std::string fullPath = Path::join(cacheDir, file.name);
         time_t fileTime = FileSystem::instance().getFileModifiedTime(fullPath);
+        std::cout << "[DEBUG] findLatestCache: file=" << file.name << " time=" << fileTime << std::endl;
+
         if (fileTime > latestTime) {
             latestTime = fileTime;
             latestPath = fullPath;
+            std::cout << "[DEBUG] findLatestCache: new latest=" << latestPath << std::endl;
         }
     }
 
+    std::cout << "[DEBUG] findLatestCache: returning=" << latestPath << std::endl;
     return latestPath;
 }
 

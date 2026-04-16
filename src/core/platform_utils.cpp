@@ -175,12 +175,9 @@ uint64_t FileSystem::getFileSize(const std::string& path) {
 
 time_t FileSystem::getFileModifiedTime(const std::string& path) {
 #if defined(_WIN32) || defined(_WIN64)
-    WIN32_FILE_ATTRIBUTE_DATA attr;
-    if (GetFileAttributesExA(path.c_str(), GetFileExInfoStandard, &attr)) {
-        ULARGE_INTEGER ull;
-        ull.LowPart = attr.ftLastWriteTime.dwLowDateTime;
-        ull.HighPart = attr.ftLastWriteTime.dwHighDateTime;
-        return ull.QuadPart / 10000000 - 11644473600LL;
+    struct stat st;
+    if (stat(path.c_str(), &st) == 0) {
+        return st.st_mtime;
     }
     return 0;
 #else
