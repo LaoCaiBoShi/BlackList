@@ -53,8 +53,11 @@ std::vector<FileInfo> FileSystem::listFilesLinux(const std::string& path,
             continue;
         }
 
-        if (!pattern.empty() && pattern != "*" && name.find(pattern) == std::string::npos) {
-            continue;
+        if (!pattern.empty() && pattern != "*") {
+            std::string extension = Path::getExtension(name);
+            if (extension != pattern && name != pattern) {
+                continue;
+            }
         }
 
         FileInfo info;
@@ -108,38 +111,50 @@ std::vector<FileInfo> FileSystem::listFiles(const std::string& path,
                                             const std::string& pattern) {
 #if defined(_WIN32) || defined(_WIN64)
     std::vector<FileInfo> result;
-    WIN32_FIND_DATAA findData;
     std::string searchPattern = Path::join(path, pattern.empty() ? "*" : pattern);
+    std::cout << "[DEBUG] listFiles Windows: path=" << path << " pattern=" << pattern << std::endl;
+    std::cout << "[DEBUG] listFiles Windows: searchPattern=" << searchPattern << std::endl;
 
+    WIN32_FIND_DATAA findData;
     HANDLE hFind = FindFirstFileA(searchPattern.c_str(), &findData);
     if (hFind == INVALID_HANDLE_VALUE) {
+        DWORD err = GetLastError();
+        std::cout << "[DEBUG] listFiles Windows: FindFirstFileA failed, error=" << err << std::endl;
         return result;
     }
+    std::cout << "[DEBUG] listFiles Windows: FindFirstFileA succeeded" << std::endl;
 
+    int count = 0;
     do {
-        if (strcmp(findData.cFileName, ".") == 0 ||
-            strcmp(findData.cFileName, "..") == 0) {
+        std::string filename(findData.cFileName);
+        if (filename == "." || filename == "..") {
+            std::cout << "[DEBUG] listFiles Windows: skipping . or .." << std::endl;
             continue;
         }
 
         if (!pattern.empty() && pattern != "*") {
-            std::string name(findData.cFileName);
-            if (name.find(pattern) == std::string::npos) {
+            std::string extension = Path::getExtension(filename);
+            std::cout << "[DEBUG] listFiles Windows: file=" << filename << " extension=" << extension << " pattern=" << pattern << std::endl;
+            if (extension != pattern && filename != pattern) {
+                std::cout << "[DEBUG] listFiles Windows: skipping " << filename << " (extension mismatch)" << std::endl;
                 continue;
             }
         }
 
         FileInfo info;
-        info.name = findData.cFileName;
+        info.name = filename;
         info.isDirectory = (findData.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY) != 0;
         info.size = (static_cast<uint64_t>(findData.nFileSizeHigh) << 32) |
                     findData.nFileSizeLow;
         info.modifiedTime = 0;
 
         result.push_back(info);
+        count++;
+        std::cout << "[DEBUG] listFiles Windows: added " << filename << " isDir=" << info.isDirectory << std::endl;
     } while (FindNextFileA(hFind, &findData));
 
     FindClose(hFind);
+    std::cout << "[DEBUG] listFiles Windows: total added=" << count << " result.size=" << result.size() << std::endl;
     return result;
 #else
     return listFilesLinux(path, pattern);
