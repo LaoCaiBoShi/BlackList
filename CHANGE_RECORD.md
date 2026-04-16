@@ -2,9 +2,63 @@
 
 ## 版本信息
 
-**当前版本**：v2026-04-14-13
-**最后更新**：2026-04-14
-**Git提交**：`89c8024`
+**当前版本**：v2026-04-16-14
+**最后更新**：2026-04-16
+**Git提交**：`a1d760e`
+
+---
+
+## 2026-04-16
+
+### 版本：v2026-04-16-14
+
+**Git提交**：`a1d760e`
+
+**改动**：添加跨平台工具类PlatformUtils和GitHub Actions CI
+
+---
+
+### PlatformUtils 跨平台工具类
+
+新增 `platform` 命名空间，提供统一的跨平台文件系统和路径操作接口。
+
+**核心功能**：
+
+| 类/方法 | 功能 |
+|--------|------|
+| `FileSystem::instance()` | 单例访问点 |
+| `FileSystem::getExecutablePath()` | 获取可执行文件路径 |
+| `FileSystem::createDirectory()` | 跨平台创建目录 |
+| `FileSystem::directoryExists()` | 检查目录是否存在 |
+| `FileSystem::listFiles()` | 遍历目录文件 |
+| `FileSystem::fileExists()` | 检查文件是否存在 |
+| `FileSystem::getFileSize()` | 获取文件大小 |
+| `FileSystem::getLastErrorString()` | 获取错误信息 |
+| `Path::join()` | 路径拼接（自动处理分隔符） |
+
+**新增文件**：
+
+| 文件 | 说明 |
+|------|------|
+| `include/platform_utils.h` | 跨平台工具类头文件 |
+| `src/core/platform_utils.cpp` | 跨平台工具类实现 |
+
+**迁移文件**：
+
+| 文件 | 改动 |
+|------|------|
+| `persist_manager.cpp` | 使用 PlatformUtils 替代 Windows API |
+
+---
+
+### GitHub Actions CI
+
+新增 `.github/workflows/build.yml`，支持多平台构建。
+
+**CI 流程**：
+- Ubuntu + GCC 构建
+- Windows + MSVC/GCC 构建
+- 自动上传构建产物
 
 ---
 
