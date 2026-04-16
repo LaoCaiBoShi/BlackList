@@ -213,6 +213,14 @@ int main(int argc, char* argv[]) {
 
     PersistManager pm;
 
+    std::string cacheDir = PersistManager::getCacheDirectory();
+    std::cout << "[DEBUG] Cache directory: " << cacheDir << std::endl;
+    LOG_INFO("Cache directory: %s", cacheDir.c_str());
+
+    std::string latestCache = PersistManager::findLatestCache();
+    std::cout << "[DEBUG] Latest cache path: " << latestCache << std::endl;
+    LOG_INFO("Latest cache path: %s", latestCache.empty() ? "(none)" : latestCache.c_str());
+
     CacheInfo cacheInfo;
     auto cacheResult = pm.checkCacheAvailable();
     if (cacheResult == CacheLoadResult::SUCCESS) {
