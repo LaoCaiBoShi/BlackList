@@ -122,20 +122,51 @@ public:
     // 省份分片数据结构
     // 利用卡号前2位=省份代码的天然映射，实现O(1)分片定位
     struct ProvinceShard {
+        int provinceCode;  // 省份代码（如 11=北京，44=广东）
         std::array<std::vector<CardInfo>, 3> cards;
         mutable std::mutex mutex;
 
-        ProvinceShard() = default;
+        ProvinceShard() : provinceCode(0) {}
+        explicit ProvinceShard(int code) : provinceCode(code) {}
+
+        ProvinceShard(ProvinceShard&& other) noexcept
+            : provinceCode(other.provinceCode)
+            , cards(std::move(other.cards))
+            , mutex() {}
+
+        ProvinceShard& operator=(ProvinceShard&& other) noexcept {
+            provinceCode = other.provinceCode;
+            cards = std::move(other.cards);
+            return *this;
+        }
+
+        ProvinceShard(const ProvinceShard&) = delete;
+        ProvinceShard& operator=(const ProvinceShard&) = delete;
     };
 
-    // 省份分片数组 - 按省份代码直接索引
-    // 省份代码 11 -> shards[11] (北京)
-    // 查询时：卡号前2位 -> 直接定位分片
-    std::array<ProvinceShard, MAX_PROVINCE_CODE> provinceShards;
+    // 省份分片数组 - 动态大小，根据实际省份数量分配
+    std::vector<ProvinceShard> provinceShards_;
+
+    // 省份代码到分片索引的映射，用于O(1)查找
+    std::unordered_map<int, size_t> provinceCodeToIndex_;
 
     // 根据省份代码获取分片索引
     inline size_t getShardIndex(unsigned short provinceCode) const {
-        return provinceCode < MAX_PROVINCE_CODE ? provinceCode : 0;
+        auto it = provinceCodeToIndex_.find(provinceCode);
+        if (it != provinceCodeToIndex_.end()) {
+            return it->second;
+        }
+        return 0;
+    }
+
+    // 添加省份到分片的映射
+    void registerProvince(int provinceCode, size_t shardIndex) {
+        provinceCodeToIndex_[provinceCode] = shardIndex;
+    }
+
+    // 获取当前分片数量
+    size_t getShardCount() const {
+        return provinceShards_.size();
     }
 
     // 根据卡号前2位获取省份代码

@@ -15,14 +15,14 @@
 // 包含 simdjson 库头文件
 #include "simdjson.h"
 
-// Windows 特定头文件
+// Windows 特定头文�?
 #ifdef _WIN32
 #include <windows.h>
 #include <psapi.h>
 #endif
 
 /**
- * @brief 构造函数
+ * @brief 构造函�?
  */
 BlacklistChecker::BlacklistChecker(QueryMode mode) : queryMode_(mode) {
     std::fill(versionInfo.begin(), versionInfo.end(), ' ');
@@ -58,8 +58,8 @@ void BlacklistChecker::initializeBloomFilter(size_t shardCount, size_t expectedT
 }
 
 /**
- * @brief 提取卡片号1-4位（省份+运营商）
- * @param cardId 卡片号
+ * @brief 提取卡片�?-4位（省份+运营商）
+ * @param cardId 卡片�?
  * @return 前缀代码
  */
 unsigned short BlacklistChecker::getPrefixCode(const std::string& cardId) {
@@ -68,8 +68,8 @@ unsigned short BlacklistChecker::getPrefixCode(const std::string& cardId) {
 }
 
 /**
- * @brief 提取卡片类型（9-10位）
- * @param cardId 卡片号
+ * @brief 提取卡片类型�?-10位）
+ * @param cardId 卡片�?
  * @return 卡片类型
  */
 unsigned short BlacklistChecker::getCardType(const std::string& cardId) {
@@ -78,8 +78,8 @@ unsigned short BlacklistChecker::getCardType(const std::string& cardId) {
 }
 
 /**
- * @brief 提取年份（5-6位）
- * @param cardId 卡片号
+ * @brief 提取年份�?-6位）
+ * @param cardId 卡片�?
  * @return 年份
  */
 unsigned short BlacklistChecker::getYear(const std::string& cardId) {
@@ -89,8 +89,8 @@ unsigned short BlacklistChecker::getYear(const std::string& cardId) {
 
 /**
  * @brief 提取星期数（7-8位）
- * @param cardId 卡片号
- * @return 星期数
+ * @param cardId 卡片�?
+ * @return 星期�?
  */
 unsigned short BlacklistChecker::getWeek(const std::string& cardId) {
     if (cardId.length() < 8) return 0;
@@ -98,8 +98,8 @@ unsigned short BlacklistChecker::getWeek(const std::string& cardId) {
 }
 
 /**
- * @brief 提取内部编号（11-20位）
- * @param cardId 卡片号
+ * @brief 提取内部编号�?1-20位）
+ * @param cardId 卡片�?
  * @return 内部编号
  */
 std::string BlacklistChecker::getInnerId(const std::string& cardId) {
@@ -108,8 +108,8 @@ std::string BlacklistChecker::getInnerId(const std::string& cardId) {
 }
 
 /**
- * @brief 加载黑名单（已废弃，请使用loadFromJsonFile）
- * @param filename 文件名
+ * @brief 加载黑名单（已废弃，请使用loadFromJsonFile�?
+ * @param filename 文件�?
  * @return 加载是否成功
  */
 bool BlacklistChecker::loadFromFile(const std::string& filename) {
@@ -118,8 +118,8 @@ bool BlacklistChecker::loadFromFile(const std::string& filename) {
 }
 
 /**
- * @brief 定期更新黑名单（已废弃，请使用loadFromJsonFile）
- * @param filename 文件名
+ * @brief 定期更新黑名单（已废弃，请使用loadFromJsonFile�?
+ * @param filename 文件�?
  * @return 更新是否成功
  */
 bool BlacklistChecker::updateFromFile(const std::string& filename) {
@@ -129,7 +129,7 @@ bool BlacklistChecker::updateFromFile(const std::string& filename) {
 
 /**
  * @brief 添加到黑名单
- * @param cardId 卡片号
+ * @param cardId 卡片�?
  */
 void BlacklistChecker::add(const std::string& cardId) {
     if (cardId.length() != 20) return;
@@ -153,18 +153,18 @@ void BlacklistChecker::add(const std::string& cardId) {
             // 只添加CardInfo存储
             {
                 size_t shardIdx = getShardIndex(provinceCode);
-                std::lock_guard<std::mutex> lock(provinceShards[shardIdx].mutex);
-                provinceShards[shardIdx].cards[getTypeIndex(type)].push_back(cardInfo);
+                std::lock_guard<std::mutex> lock(provinceShards_[shardIdx].mutex);
+                provinceShards_[shardIdx].cards[getTypeIndex(type)].push_back(cardInfo);
             }
             break;
 
         case QueryMode::BLOOM_AND_CARDINFO:
         default:
-            // 添加到两者
+            // 添加到两�?
             {
                 size_t shardIdx = getShardIndex(provinceCode);
-                std::lock_guard<std::mutex> lock(provinceShards[shardIdx].mutex);
-                provinceShards[shardIdx].cards[getTypeIndex(type)].push_back(cardInfo);
+                std::lock_guard<std::mutex> lock(provinceShards_[shardIdx].mutex);
+                provinceShards_[shardIdx].cards[getTypeIndex(type)].push_back(cardInfo);
             }
             bloomFilter.add(cardId);
             break;
@@ -172,7 +172,7 @@ void BlacklistChecker::add(const std::string& cardId) {
 }
 
 /**
- * @brief 批量添加到黑名单（按省份分片并行）
+ * @brief 批量添加到黑名单（按省份分片并行�?
  * @param cardIds 卡号列表
  */
 void BlacklistChecker::addBatch(const std::vector<std::string>& cardIds) {
@@ -194,14 +194,14 @@ void BlacklistChecker::addBatch(const std::vector<std::string>& cardIds) {
 
     for (auto& [shardIdx, shardCards] : localByShard) {
         threads.emplace_back([this, shardIdx, &shardCards]() {
-            std::lock_guard<std::mutex> lock(provinceShards[shardIdx].mutex);
+            std::lock_guard<std::mutex> lock(provinceShards_[shardIdx].mutex);
             for (const std::string& cardId : shardCards) {
                 unsigned short type = getCardType(cardId);
                 unsigned short year = getYear(cardId);
                 unsigned short week = getWeek(cardId);
                 std::string innerId = getInnerId(cardId);
                 CardInfo cardInfo(year, week, innerId);
-                provinceShards[shardIdx].cards[getTypeIndex(type)].push_back(cardInfo);
+                provinceShards_[shardIdx].cards[getTypeIndex(type)].push_back(cardInfo);
             }
         });
     }
@@ -216,8 +216,8 @@ void BlacklistChecker::addBatch(const std::vector<std::string>& cardIds) {
 }
 
 /**
- * @brief 从黑名单中删除
- * @param cardId 卡片号
+ * @brief 从黑名单中删�?
+ * @param cardId 卡片�?
  */
 void BlacklistChecker::remove(const std::string& cardId) {
     if (cardId.length() != 20) return;
@@ -231,8 +231,8 @@ void BlacklistChecker::remove(const std::string& cardId) {
     CardInfo cardInfo(year, week, innerId);
 
     size_t shardIdx = getShardIndex(provinceCode);
-    std::lock_guard<std::mutex> lock(provinceShards[shardIdx].mutex);
-    auto& cards = provinceShards[shardIdx].cards[getTypeIndex(type)];
+    std::lock_guard<std::mutex> lock(provinceShards_[shardIdx].mutex);
+    auto& cards = provinceShards_[shardIdx].cards[getTypeIndex(type)];
     auto cardIt = std::find(cards.begin(), cards.end(), cardInfo);
     if (cardIt != cards.end()) {
         cards.erase(cardIt);
@@ -240,9 +240,9 @@ void BlacklistChecker::remove(const std::string& cardId) {
 }
 
 /**
- * @brief 检查是否在黑名单
- * @param cardId 卡片号
- * @return 是否在黑名单中
+ * @brief 检查是否在黑名�?
+ * @param cardId 卡片�?
+ * @return 是否在黑名单�?
  */
 bool BlacklistChecker::isBlacklisted(const std::string& cardId) {
     return checkCard(cardId).isBlacklisted;
@@ -250,8 +250,8 @@ bool BlacklistChecker::isBlacklisted(const std::string& cardId) {
 
 /**
  * @brief 检查是否在黑名单并返回详细结果
- * @param cardId 卡片号
- * @return 查询结果结构体
+ * @param cardId 卡片�?
+ * @return 查询结果结构�?
  */
 QueryResult BlacklistChecker::checkCard(const std::string& cardId) {
     if (cardId.length() != 20) {
@@ -278,8 +278,8 @@ QueryResult BlacklistChecker::checkCard(const std::string& cardId) {
             {
                 CardInfo cardInfo(year, week, innerId);
                 size_t shardIdx = getShardIndex(provinceCode);
-                std::lock_guard<std::mutex> lock(provinceShards[shardIdx].mutex);
-                const auto& cards = provinceShards[shardIdx].cards[typeIdx];
+                std::lock_guard<std::mutex> lock(provinceShards_[shardIdx].mutex);
+                const auto& cards = provinceShards_[shardIdx].cards[typeIdx];
                 bool found = std::binary_search(cards.begin(), cards.end(), cardInfo);
                 return QueryResult(found, QueryMethod::CARDINFO_EXACT);
             }
@@ -299,9 +299,9 @@ QueryResult BlacklistChecker::checkCard(const std::string& cardId) {
                 LOG_DEBUG("checkCard: %.4s**** - province=%u, type=%u, year=%u, week=%u, typeIdx=%zu, shardIdx=%zu",
                           cardId.c_str(), provinceCode, type, year, week, typeIdx, shardIdx);
 
-                std::lock_guard<std::mutex> lock(provinceShards[shardIdx].mutex);
+                std::lock_guard<std::mutex> lock(provinceShards_[shardIdx].mutex);
 
-                const auto& cards = provinceShards[shardIdx].cards[typeIdx];
+                const auto& cards = provinceShards_[shardIdx].cards[typeIdx];
                 bool found = std::binary_search(cards.begin(), cards.end(), cardInfo);
 
                 LOG_DEBUG("checkCard: %.4s**** - binary_search result: %s, cards in shard: %zu",
@@ -313,22 +313,22 @@ QueryResult BlacklistChecker::checkCard(const std::string& cardId) {
 }
 
 /**
- * @brief 获取黑名单大小
- * @return 黑名单大小
+ * @brief 获取黑名单大�?
+ * @return 黑名单大�?
  */
 size_t BlacklistChecker::size() const {
     size_t count = 0;
     for (size_t shardIdx = 0; shardIdx < MAX_PROVINCE_CODE; ++shardIdx) {
         for (size_t typeIdx = 0; typeIdx < 3; ++typeIdx) {
-            count += provinceShards[shardIdx].cards[typeIdx].size();
+            count += provinceShards_[shardIdx].cards[typeIdx].size();
         }
     }
     return count;
 }
 
 /**
- * @brief 保存到文件
- * @param filename 文件名
+ * @brief 保存到文�?
+ * @param filename 文件�?
  * @return 保存是否成功
  */
 bool BlacklistChecker::saveToFile(const std::string& filename) {
@@ -345,7 +345,7 @@ bool BlacklistChecker::saveToFile(const std::string& filename) {
 
         for (size_t shardIdx = 0; shardIdx < MAX_PROVINCE_CODE; ++shardIdx) {
             for (size_t typeIdx = 0; typeIdx < 3; ++typeIdx) {
-                for (const auto& card : provinceShards[shardIdx].cards[typeIdx]) {
+                for (const auto& card : provinceShards_[shardIdx].cards[typeIdx]) {
                     std::string fullCardId = std::to_string(shardIdx);
                     std::string yearStr = std::to_string(card.getYear());
                     if (yearStr.length() < 2) yearStr = "0" + yearStr;
@@ -373,7 +373,7 @@ bool BlacklistChecker::saveToFile(const std::string& filename) {
 
 /**
  * @brief 加载黑名单到指定map
- * @param filename 文件名
+ * @param filename 文件�?
  * @param targetMap 目标map
  * @param versionOut 版本信息输出
  * @return 加载是否成功
@@ -418,7 +418,7 @@ bool BlacklistChecker::loadFromFileToMap(const std::string& filename, std::unord
 
 /**
  * @brief 设置版本信息
- * @param version 版本信息（应为空格或8字符的YYYYMMDD格式）
+ * @param version 版本信息（应为空格或8字符的YYYYMMDD格式�?
  */
 void BlacklistChecker::setVersionInfo(const std::string& version) {
     std::fill(versionInfo.begin(), versionInfo.end(), ' ');
@@ -442,8 +442,8 @@ std::string BlacklistChecker::getVersionInfo() const {
 
 /**
  * @brief 从指定文件地址读取txt格式的黑名单
- * @param filename 文件名
- * @param loadedCount 成功加载的数量
+ * @param filename 文件�?
+ * @param loadedCount 成功加载的数�?
  * @param invalidCount 无效卡片ID数量
  * @return 加载是否成功
  */
@@ -482,8 +482,8 @@ bool BlacklistChecker::loadTxtBlacklist(const std::string& filename, size_t& loa
 
 /**
  * @brief 从指定文件地址读取JSON格式的黑名单
- * @param filename 文件名
- * @param loadedCount 成功加载的数量
+ * @param filename 文件�?
+ * @param loadedCount 成功加载的数�?
  * @param invalidCount 无效卡片ID数量
  * @return 加载是否成功
  */
@@ -492,14 +492,14 @@ thread_local simdjson::dom::parser localParser;
 
 bool BlacklistChecker::loadFromJsonFile(const std::string& filename, size_t& loadedCount, size_t& invalidCount) {
     try {
-        // 检查文件是否存在
+        // 检查文件是否存�?
         std::ifstream file(filename, std::ios::binary);
         if (!file.is_open()) {
             std::cerr << "Failed to open JSON file: " << filename << " (File not found or cannot be opened)" << std::endl;
             return false;
         }
 
-        // 一次性读取整个文件内容
+        // 一次性读取整个文件内�?
         std::string content((std::istreambuf_iterator<char>(file)), std::istreambuf_iterator<char>());
         file.close();
 
@@ -508,7 +508,7 @@ bool BlacklistChecker::loadFromJsonFile(const std::string& filename, size_t& loa
         loadedCount = 0;
         invalidCount = 0;
 
-        // 使用 simdjson 解析 JSON（复用线程局部的parser）
+        // 使用 simdjson 解析 JSON（复用线程局部的parser�?
         auto json_result = localParser.parse(content);
 
         if (json_result.error()) {
@@ -529,7 +529,7 @@ bool BlacklistChecker::loadFromJsonFile(const std::string& filename, size_t& loa
 
         // 第一遍：收集所有有效的卡号
         std::vector<std::string> validCardIds;
-        validCardIds.reserve(array.size()); // 预分配内存
+        validCardIds.reserve(array.size()); // 预分配内�?
 
         for (simdjson::dom::element element : array) {
             // 获取 cardId 字段
@@ -550,7 +550,7 @@ bool BlacklistChecker::loadFromJsonFile(const std::string& filename, size_t& loa
 
             // 直接使用 string_view 验证，避免不必要的字符串复制
             if (cardIdView.length() == 20) {
-                // 验证卡号格式（纯数字）
+                // 验证卡号格式（纯数字�?
                 bool valid = true;
                 for (char c : cardIdView) {
                     if (c < '0' || c > '9') {
@@ -560,7 +560,7 @@ bool BlacklistChecker::loadFromJsonFile(const std::string& filename, size_t& loa
                 }
 
                 if (valid) {
-                    validCardIds.emplace_back(cardIdView); // 使用 string_view 构造 string
+                    validCardIds.emplace_back(cardIdView); // 使用 string_view 构�?string
                 } else {
                     invalidCount++;
                 }
@@ -569,7 +569,7 @@ bool BlacklistChecker::loadFromJsonFile(const std::string& filename, size_t& loa
             }
         }
 
-        // 第二遍：批量添加到黑名单（减少锁竞争）
+        // 第二遍：批量添加到黑名单（减少锁竞争�?
         if (!validCardIds.empty()) {
             addBatch(validCardIds);
             loadedCount = validCardIds.size();
@@ -584,8 +584,8 @@ bool BlacklistChecker::loadFromJsonFile(const std::string& filename, size_t& loa
 }
 
 /**
- * @brief 预分配容量
- * @param additionalRecords 额外记录数
+ * @brief 预分配容�?
+ * @param additionalRecords 额外记录�?
  */
 void BlacklistChecker::reserveCapacity(size_t additionalRecords) {
     size_t totalExpectedCards = additionalRecords;
@@ -594,7 +594,7 @@ void BlacklistChecker::reserveCapacity(size_t additionalRecords) {
 
     for (size_t shardIdx = 0; shardIdx < MAX_PROVINCE_CODE; ++shardIdx) {
         for (size_t typeIdx = 0; typeIdx < 3; ++typeIdx) {
-            provinceShards[shardIdx].cards[typeIdx].reserve(avgCardsPerType);
+            provinceShards_[shardIdx].cards[typeIdx].reserve(avgCardsPerType);
         }
     }
 
@@ -605,50 +605,60 @@ bool BlacklistChecker::reserveProvinceCapacitySafe(int provinceCode,
                                                     size_t jsonFileCount,
                                                     size_t cardsPerJson,
                                                     double bufferFactor) {
-    if (provinceCode < 0 || static_cast<size_t>(provinceCode) >= MAX_PROVINCE_CODE) {
+    if (provinceCode < 0 || provinceCode >= 100) {
         std::cerr << "[ERROR] Invalid province code: " << provinceCode
-                  << " (valid range: 0-" << (MAX_PROVINCE_CODE - 1) << ")" << std::endl;
+                  << " (valid range: 0-99)" << std::endl;
         return false;
     }
-    
+
     if (jsonFileCount == 0) {
         std::cout << "[WARN] Province " << provinceCode << " has 0 JSON files, skipping pre-allocation" << std::endl;
         return true;
     }
-    
-    double estimated = static_cast<double>(jsonFileCount) * 
-                       static_cast<double>(cardsPerJson) * 
+
+    auto it = provinceCodeToIndex_.find(provinceCode);
+    size_t shardIdx;
+    if (it == provinceCodeToIndex_.end()) {
+        shardIdx = provinceShards_.size();
+        provinceShards_.emplace_back(ProvinceShard(provinceCode));
+        registerProvince(provinceCode, shardIdx);
+        std::cout << "[DEBUG] Registered new province " << provinceCode << " at shard " << shardIdx << std::endl;
+    } else {
+        shardIdx = it->second;
+    }
+
+    double estimated = static_cast<double>(jsonFileCount) *
+                       static_cast<double>(cardsPerJson) *
                        bufferFactor;
-    
+
     const size_t MAX_REASONABLE_CARDS = 10000000;
     if (estimated > MAX_REASONABLE_CARDS) {
-        std::cerr << "[WARN] Province " << provinceCode << " estimated " 
+        std::cerr << "[WARN] Province " << provinceCode << " estimated "
                   << estimated << " cards exceeds limit, capping" << std::endl;
         estimated = MAX_REASONABLE_CARDS;
     }
-    
+
     size_t estimatedTotalCards = static_cast<size_t>(estimated);
     size_t perTypeCapacity = estimatedTotalCards / 3;
     const size_t MIN_CAPACITY_PER_TYPE = 100;
-    
+
     if (perTypeCapacity < MIN_CAPACITY_PER_TYPE) {
         perTypeCapacity = MIN_CAPACITY_PER_TYPE;
     }
-    
+
     try {
-        size_t shardIdx = getShardIndex(static_cast<unsigned short>(provinceCode));
-        std::lock_guard<std::mutex> lock(provinceShards[shardIdx].mutex);
-        
+        std::lock_guard<std::mutex> lock(provinceShards_[shardIdx].mutex);
+
         for (size_t typeIdx = 0; typeIdx < 3; ++typeIdx) {
-            auto& vec = provinceShards[shardIdx].cards[typeIdx];
+            auto& vec = provinceShards_[shardIdx].cards[typeIdx];
             if (vec.capacity() < perTypeCapacity) {
                 vec.reserve(perTypeCapacity);
             }
         }
-        
-        LOG_DEBUG("Reserved capacity for province %d: %zu total cards (%zu per type)", 
-                  provinceCode, estimatedTotalCards, perTypeCapacity);
-        
+
+        LOG_DEBUG("Reserved capacity for province %d (shard %zu): %zu total cards (%zu per type)",
+                  provinceCode, shardIdx, estimatedTotalCards, perTypeCapacity);
+
     } catch (const std::bad_alloc& e) {
         std::cerr << "[ERROR] Memory allocation failed for province " << provinceCode
                   << ": " << e.what() << std::endl;
@@ -664,7 +674,7 @@ bool BlacklistChecker::reserveProvinceCapacitySafe(int provinceCode,
 }
 
 /**
- * @brief 对所有卡片进行排序（省份分片并行排序）
+ * @brief 对所有卡片进行排序（省份分片并行排序�?
  */
 void BlacklistChecker::sortAll() {
     size_t threadCount = std::thread::hardware_concurrency();
@@ -680,9 +690,9 @@ void BlacklistChecker::sortAll() {
 
         threads.emplace_back([this, i, endIdx]() {
             for (size_t shardIdx = i; shardIdx < endIdx; ++shardIdx) {
-                std::lock_guard<std::mutex> lock(provinceShards[shardIdx].mutex);
+                std::lock_guard<std::mutex> lock(provinceShards_[shardIdx].mutex);
                 for (size_t typeIdx = 0; typeIdx < 3; ++typeIdx) {
-                    auto& cards = provinceShards[shardIdx].cards[typeIdx];
+                    auto& cards = provinceShards_[shardIdx].cards[typeIdx];
                     if (cards.size() > 1) {
                         std::sort(cards.begin(), cards.end());
                     }
@@ -704,7 +714,7 @@ void BlacklistChecker::sortProvince(int provinceCode) {
 
     LOG_DEBUG("sortProvince %d: starting", provinceCode);
     for (size_t typeIdx = 0; typeIdx < 3; ++typeIdx) {
-        auto& cards = provinceShards[provinceCode].cards[typeIdx];
+        auto& cards = provinceShards_[provinceCode].cards[typeIdx];
         if (cards.size() > 1) {
             std::sort(cards.begin(), cards.end());
         }
@@ -713,7 +723,7 @@ void BlacklistChecker::sortProvince(int provinceCode) {
 }
 
 /**
- * @brief 获取系统剩余内存（MB）
+ * @brief 获取系统剩余内存（MB�?
  * @return 剩余内存
  */
 size_t BlacklistChecker::getAvailableMemory() {
@@ -723,13 +733,13 @@ size_t BlacklistChecker::getAvailableMemory() {
     GlobalMemoryStatusEx(&memInfo);
     return memInfo.ullAvailPhys / (1024 * 1024);
 #else
-    // 非Windows平台的实现
+    // 非Windows平台的实�?
     return 0;
 #endif
 }
 
 /**
- * @brief 计算当前黑名单占用的内存（MB）
+ * @brief 计算当前黑名单占用的内存（MB�?
  * @return 内存占用
  */
 size_t BlacklistChecker::getCurrentMemoryUsage() {
@@ -737,7 +747,7 @@ size_t BlacklistChecker::getCurrentMemoryUsage() {
 
     for (size_t shardIdx = 0; shardIdx < MAX_PROVINCE_CODE; ++shardIdx) {
         for (size_t typeIdx = 0; typeIdx < 3; ++typeIdx) {
-            size += provinceShards[shardIdx].cards[typeIdx].size() * sizeof(CardInfo);
+            size += provinceShards_[shardIdx].cards[typeIdx].size() * sizeof(CardInfo);
         }
     }
 
@@ -745,8 +755,8 @@ size_t BlacklistChecker::getCurrentMemoryUsage() {
 }
 
 /**
- * @brief 获取布隆过滤器中的元素数量
- * @return 布隆过滤器中的元素数量
+ * @brief 获取布隆过滤器中的元素数�?
+ * @return 布隆过滤器中的元素数�?
  */
 size_t BlacklistChecker::getBloomFilterElementCount() const {
     return bloomFilter.getElementCount();
@@ -764,12 +774,12 @@ void BlacklistChecker::printLoadingStats() const {
     std::cout << "==========================================" << std::endl;
 }
 
-// ==================== 持久化相关实现 ====================
+// ==================== 持久化相关实�?====================
 
 /**
- * @brief 保存为持久化格式（二进制）
+ * @brief 保存为持久化格式（二进制�?
  * 文件结构：Header(64B) + IndexTable(variable) + BinaryCardData(variable)
- * @param filename 持久化文件路径
+ * @param filename 持久化文件路�?
  * @return 保存是否成功
  */
 bool BlacklistChecker::saveToPersistFile(const std::string& filename) {
@@ -797,9 +807,9 @@ bool BlacklistChecker::saveToPersistFile(const std::string& filename) {
         for (size_t shardIdx = 0; shardIdx < MAX_PROVINCE_CODE; ++shardIdx) {
             uint16_t provinceCode = static_cast<uint16_t>(shardIdx);
             std::array<uint32_t, 3> counts = {
-                static_cast<uint32_t>(provinceShards[shardIdx].cards[0].size()),
-                static_cast<uint32_t>(provinceShards[shardIdx].cards[1].size()),
-                static_cast<uint32_t>(provinceShards[shardIdx].cards[2].size())
+                static_cast<uint32_t>(provinceShards_[shardIdx].cards[0].size()),
+                static_cast<uint32_t>(provinceShards_[shardIdx].cards[1].size()),
+                static_cast<uint32_t>(provinceShards_[shardIdx].cards[2].size())
             };
 
             if (counts[0] == 0 && counts[1] == 0 && counts[2] == 0) {
@@ -862,7 +872,7 @@ bool BlacklistChecker::saveToPersistFile(const std::string& filename) {
             uint16_t provinceCode = prefixOffsets[i].first;
             size_t shardIdx = getShardIndex(provinceCode);
             for (size_t typeIdx = 0; typeIdx < 3; ++typeIdx) {
-                const auto& cards = provinceShards[shardIdx].cards[typeIdx];
+                const auto& cards = provinceShards_[shardIdx].cards[typeIdx];
                 if (!cards.empty()) {
                     file.write(reinterpret_cast<const char*>(cards.data()),
                               cards.size() * sizeof(CardInfo));
@@ -887,7 +897,7 @@ bool BlacklistChecker::saveToPersistFile(const std::string& filename) {
 /**
  * @brief 从持久化格式加载（快速恢复）
  * 使用 mmap 实现秒级加载
- * @param filename 持久化文件路径
+ * @param filename 持久化文件路�?
  * @return 加载是否成功
  */
 bool BlacklistChecker::loadFromPersistFile(const std::string& filename) {
@@ -896,7 +906,7 @@ bool BlacklistChecker::loadFromPersistFile(const std::string& filename) {
     PersistHeader header;
 
     {
-        // 读取文件头和索引表（不需要锁）
+        // 读取文件头和索引表（不需要锁�?
         std::ifstream file(filename, std::ios::binary | std::ios::ate);
         if (!file.is_open()) {
             std::cerr << "Failed to open persist file: " << filename << std::endl;
@@ -973,15 +983,15 @@ bool BlacklistChecker::loadFromPersistFile(const std::string& filename) {
 
     for (auto& [provinceCode, typeArrays] : loadedData) {
         size_t shardIdx = getShardIndex(provinceCode);
-        std::lock_guard<std::mutex> lock(provinceShards[shardIdx].mutex);
-        provinceShards[shardIdx].cards = std::move(typeArrays);
+        std::lock_guard<std::mutex> lock(provinceShards_[shardIdx].mutex);
+        provinceShards_[shardIdx].cards = std::move(typeArrays);
     }
 
     sortAll();
 
     for (size_t shardIdx = 0; shardIdx < MAX_PROVINCE_CODE; ++shardIdx) {
         for (size_t typeIdx = 0; typeIdx < 3; ++typeIdx) {
-            for (const auto& card : provinceShards[shardIdx].cards[typeIdx]) {
+            for (const auto& card : provinceShards_[shardIdx].cards[typeIdx]) {
                 std::string fullCardId = std::to_string(shardIdx);
                 std::string yearStr = std::to_string(card.getYear());
                 if (yearStr.length() < 2) yearStr = "0" + yearStr;
@@ -1003,9 +1013,9 @@ bool BlacklistChecker::loadFromPersistFile(const std::string& filename) {
 }
 
 /**
- * @brief 在原始数据加载后保存持久化文件
- * 用于在完成原始数据加载后创建持久化快照，以便下次快速恢复
- * @param persistPath 持久化文件路径
+ * @brief 在原始数据加载后保存持久化文�?
+ * 用于在完成原始数据加载后创建持久化快照，以便下次快速恢�?
+ * @param persistPath 持久化文件路�?
  * @return 保存是否成功
  */
 bool BlacklistChecker::savePersistAfterLoad(const std::string& persistPath) {
@@ -1025,8 +1035,8 @@ bool BlacklistChecker::savePersistAfterLoad(const std::string& persistPath) {
 }
 
 /**
- * @brief 检查持久化文件是否存在且有效
- * @param persistPath 持久化文件路径
+ * @brief 检查持久化文件是否存在且有�?
+ * @param persistPath 持久化文件路�?
  * @return 文件是否有效
  */
 bool BlacklistChecker::isPersistFileValid(const std::string& persistPath) {
