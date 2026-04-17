@@ -950,6 +950,7 @@ bool BlacklistChecker::loadFromPersistFile(const std::string& filename) {
             }
         }
 
+        bloomFilter.initialize(prefixCount, header.totalCards);
         bloomFilter.clear();
         std::memcpy(versionInfo.data(), header.versionInfo, 8);
     }
