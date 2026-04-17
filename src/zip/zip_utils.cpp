@@ -1399,6 +1399,9 @@ bool loadBlacklistFromCompressedFile(const std::string& compressedPath, Blacklis
             return true;
         }
 
+        size_t estimatedTotalElements = provinceZips.size() * 500000;
+        checker.initializeBloomFilter(provinceZips.size(), estimatedTotalElements);
+
         LOG_INFO("Stage 2.5: Pre-allocating memory for provinces");
         std::cout << "\n[Stage 2.5] Pre-allocating memory based on JSON file counts..." << std::endl;
         size_t preAllocated = preAllocateAllProvinces(checker, provinceZips);

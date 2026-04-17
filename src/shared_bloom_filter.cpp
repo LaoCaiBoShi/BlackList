@@ -1,28 +1,36 @@
 #include "shared_bloom_filter.h"
 
-const double ShardedBloomFilter::SAFETY_FACTOR = 1.3;
+ShardedBloomFilter::ShardedBloomFilter() {
+}
 
-ShardedBloomFilter::ShardedBloomFilter(size_t expectedElements,
-                                       double falsePositiveRate) {
-    bitsPerShard_ = computeBitsPerShard(expectedElements, falsePositiveRate);
+void ShardedBloomFilter::initialize(size_t shardCount, size_t expectedTotalElements,
+                                    double falsePositiveRate) {
+    numShards_ = shardCount;
 
-    for (size_t i = 0; i < NUM_SHARDS; ++i) {
+    size_t elementsPerShard = (expectedTotalElements + shardCount - 1) / shardCount;
+    bitsPerShard_ = computeBitsPerShard(elementsPerShard, falsePositiveRate);
+
+    shards_.clear();
+    shards_.reserve(shardCount);
+    for (size_t i = 0; i < shardCount; ++i) {
+        Shard shard;
         size_t bytes = bitsPerShard_ / 8 + 1;
-        shards_[i].bits.resize(bytes, 0);
-        shards_[i].elementCount.store(0, std::memory_order_relaxed);
+        shard.bits.resize(bytes, 0);
+        shard.elementCount.store(0, std::memory_order_relaxed);
+        shards_.push_back(std::move(shard));
     }
 
-    size_t totalBits = bitsPerShard_ * NUM_SHARDS;
+    size_t totalBits = bitsPerShard_ * numShards_;
     size_t totalMB = totalBits / 8 / (1024 * 1024);
-    std::cout << "[ShardedBloomFilter] Initialized: " << NUM_SHARDS
+    std::cout << "[ShardedBloomFilter] Initialized: " << numShards_
               << " shards, " << bitsPerShard_ << " bits/shard, ~"
               << totalMB << " MB" << std::endl;
 }
 
-size_t ShardedBloomFilter::computeBitsPerShard(size_t totalElements,
+size_t ShardedBloomFilter::computeBitsPerShard(size_t elementsPerShard,
                                                double falsePositiveRate) {
-    size_t n = totalElements / NUM_SHARDS;
-    double m = -static_cast<double>(n) * std::log(falsePositiveRate) /
+    double n = static_cast<double>(elementsPerShard);
+    double m = -n * std::log(falsePositiveRate) /
                (std::log(2) * std::log(2)) * SAFETY_FACTOR;
     return static_cast<size_t>(m);
 }
@@ -32,7 +40,7 @@ inline size_t ShardedBloomFilter::getShardIndex(const std::string& key) const {
     for (size_t i = 0; i < std::min(key.length(), size_t(8)); ++i) {
         h = h * 31 + static_cast<unsigned char>(key[i]);
     }
-    return h % NUM_SHARDS;
+    return h % numShards_;
 }
 
 inline void ShardedBloomFilter::computeHashes(const std::string& key,
@@ -78,7 +86,7 @@ bool ShardedBloomFilter::contains(const std::string& key) const {
 }
 
 void ShardedBloomFilter::clear() {
-    for (size_t i = 0; i < NUM_SHARDS; ++i) {
+    for (size_t i = 0; i < numShards_; ++i) {
         std::fill(shards_[i].bits.begin(), shards_[i].bits.end(), 0);
         shards_[i].elementCount.store(0, std::memory_order_relaxed);
     }
@@ -95,28 +103,14 @@ size_t ShardedBloomFilter::getMemoryUsage() const {
 }
 
 size_t ShardedBloomFilter::getShardLoad(size_t shardIdx) const {
-    if (shardIdx >= NUM_SHARDS) return 0;
+    if (shardIdx >= numShards_) return 0;
     return shards_[shardIdx].elementCount.load(std::memory_order_relaxed);
 }
 
 void ShardedBloomFilter::printLoadDistribution() const {
     std::cout << "[ShardedBloomFilter] Load distribution:" << std::endl;
-    size_t minLoad = SIZE_MAX;
-    size_t maxLoad = 0;
-    double totalLoad = 0;
-
-    for (size_t i = 0; i < NUM_SHARDS; ++i) {
+    for (size_t i = 0; i < numShards_; ++i) {
         size_t load = shards_[i].elementCount.load(std::memory_order_relaxed);
-        minLoad = std::min(minLoad, load);
-        maxLoad = std::max(maxLoad, load);
-        totalLoad += static_cast<double>(load);
+        std::cout << "  Shard " << i << ": " << load << " elements" << std::endl;
     }
-
-    double avgLoad = totalLoad / NUM_SHARDS;
-    double unevenness = (avgLoad > 0) ? (static_cast<double>(maxLoad) / avgLoad) : 0;
-
-    std::cout << "  Min: " << minLoad
-              << ", Max: " << maxLoad
-              << ", Avg: " << static_cast<size_t>(avgLoad)
-              << ", Unevenness: " << unevenness << std::endl;
 }

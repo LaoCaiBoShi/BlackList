@@ -207,6 +207,11 @@ public:
     // 设置查询模式（在数据加载前调用）
     void setQueryMode(QueryMode mode);
 
+    // 初始化布隆过滤器（在知道省份数量后调用）
+    // @param shardCount 分片数量（即省份数量）
+    // @param expectedTotalElements 预期元素总数
+    void initializeBloomFilter(size_t shardCount, size_t expectedTotalElements);
+
     // 获取当前查询模式
     QueryMode getQueryMode() const {
         return queryMode_;

@@ -53,6 +53,10 @@ void BlacklistChecker::setQueryMode(QueryMode mode) {
     queryMode_ = mode;
 }
 
+void BlacklistChecker::initializeBloomFilter(size_t shardCount, size_t expectedTotalElements) {
+    bloomFilter.initialize(shardCount, expectedTotalElements);
+}
+
 /**
  * @brief 提取卡片号1-4位（省份+运营商）
  * @param cardId 卡片号

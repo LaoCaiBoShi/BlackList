@@ -3,26 +3,38 @@
 
 #include <string>
 #include <vector>
-#include <array>
 #include <atomic>
 #include <mutex>
 #include <cstddef>
 #include <cmath>
 #include <iostream>
 #include <stdexcept>
+#include <memory>
 
 class ShardedBloomFilter {
 private:
-    static const size_t NUM_SHARDS = 64;
-    static const size_t DEFAULT_HASH_COUNT = 3;
-    static const double SAFETY_FACTOR;
+    static constexpr size_t DEFAULT_HASH_COUNT = 3;
+    static constexpr double SAFETY_FACTOR = 1.3;
 
     struct Shard {
         std::vector<uint8_t> bits;
         std::atomic<size_t> elementCount{0};
+
+        Shard() = default;
+        Shard(Shard&& other) noexcept
+            : bits(std::move(other.bits))
+            , elementCount(other.elementCount.load()) {}
+        Shard& operator=(Shard&& other) noexcept {
+            bits = std::move(other.bits);
+            elementCount.store(other.elementCount.load());
+            return *this;
+        }
+        Shard(const Shard&) = delete;
+        Shard& operator=(const Shard&) = delete;
     };
 
-    std::array<Shard, NUM_SHARDS> shards_;
+    std::vector<Shard> shards_;
+    size_t numShards_{0};
     size_t bitsPerShard_{0};
     size_t hashCount_{DEFAULT_HASH_COUNT};
     size_t totalElements_{0};
@@ -30,8 +42,10 @@ private:
     size_t computeBitsPerShard(size_t totalElements, double falsePositiveRate);
 
 public:
-    explicit ShardedBloomFilter(size_t expectedElements = 30000000,
-                                double falsePositiveRate = 0.000001);  // 默认百万分之一
+    ShardedBloomFilter();
+
+    void initialize(size_t shardCount, size_t expectedTotalElements,
+                    double falsePositiveRate = 0.000001);
 
     void add(const std::string& key);
     bool contains(const std::string& key) const;
@@ -43,8 +57,8 @@ public:
 
     size_t getBitsPerShard() const { return bitsPerShard_; }
     size_t getHashCount() const { return hashCount_; }
-    size_t getShardCount() const { return NUM_SHARDS; }
-    size_t getTotalBits() const { return bitsPerShard_ * NUM_SHARDS; }
+    size_t getShardCount() const { return numShards_; }
+    size_t getTotalBits() const { return bitsPerShard_ * numShards_; }
     size_t getElementCount() const { return totalElements_; }
 
 private:
