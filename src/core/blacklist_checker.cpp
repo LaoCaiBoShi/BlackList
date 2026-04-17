@@ -961,45 +961,91 @@ bool BlacklistChecker::loadFromPersistFile(const std::string& filename) {
         return false;
     }
 
+    std::cout << "[DEBUG] Starting to load " << indexTable.size() << " provinces from persist file" << std::endl;
+
     for (const auto& entry : indexTable) {
         uint16_t provinceCode = entry.prefix;
+        std::cout << "[DEBUG] Loading province " << provinceCode
+                  << " type0=" << entry.type0Count
+                  << " type1=" << entry.type1Count
+                  << " type2=" << entry.type2Count
+                  << " offsets=" << entry.type0Offset << "," << entry.type1Offset << "," << entry.type2Offset
+                  << std::endl;
         std::array<std::vector<CardInfo>, 3> typeArrays;
 
         if (entry.type0Count > 0) {
-            typeArrays[0].resize(entry.type0Count);
+            std::cout << "[DEBUG] Reading type0 at offset " << entry.type0Offset << std::endl;
             file.seekg(static_cast<std::streamoff>(entry.type0Offset));
+            if (!file.good()) {
+                std::cerr << "[ERROR] seekg failed for type0 at offset " << entry.type0Offset << std::endl;
+                return false;
+            }
+            typeArrays[0].resize(entry.type0Count);
             file.read(reinterpret_cast<char*>(typeArrays[0].data()),
                      entry.type0Count * sizeof(CardInfo));
+            if (file.fail()) {
+                std::cerr << "[ERROR] read failed for type0, count=" << entry.type0Count << std::endl;
+                return false;
+            }
         }
         if (entry.type1Count > 0) {
-            typeArrays[1].resize(entry.type1Count);
+            std::cout << "[DEBUG] Reading type1 at offset " << entry.type1Offset << std::endl;
             file.seekg(static_cast<std::streamoff>(entry.type1Offset));
+            if (!file.good()) {
+                std::cerr << "[ERROR] seekg failed for type1 at offset " << entry.type1Offset << std::endl;
+                return false;
+            }
+            typeArrays[1].resize(entry.type1Count);
             file.read(reinterpret_cast<char*>(typeArrays[1].data()),
                      entry.type1Count * sizeof(CardInfo));
+            if (file.fail()) {
+                std::cerr << "[ERROR] read failed for type1, count=" << entry.type1Count << std::endl;
+                return false;
+            }
         }
         if (entry.type2Count > 0) {
-            typeArrays[2].resize(entry.type2Count);
+            std::cout << "[DEBUG] Reading type2 at offset " << entry.type2Offset << std::endl;
             file.seekg(static_cast<std::streamoff>(entry.type2Offset));
+            if (!file.good()) {
+                std::cerr << "[ERROR] seekg failed for type2 at offset " << entry.type2Offset << std::endl;
+                return false;
+            }
+            typeArrays[2].resize(entry.type2Count);
             file.read(reinterpret_cast<char*>(typeArrays[2].data()),
                      entry.type2Count * sizeof(CardInfo));
+            if (file.fail()) {
+                std::cerr << "[ERROR] read failed for type2, count=" << entry.type2Count << std::endl;
+                return false;
+            }
         }
 
         loadedData.emplace_back(provinceCode, std::move(typeArrays));
     }
+    std::cout << "[DEBUG] Loaded " << loadedData.size() << " provinces" << std::endl;
     file.close();
 
+    std::cout << "[DEBUG] Registering provinces to shards..." << std::endl;
     for (auto& [provinceCode, typeArrays] : loadedData) {
+        std::cout << "[DEBUG] Processing province " << provinceCode << std::endl;
         auto it = provinceCodeToIndex_.find(provinceCode);
         size_t shardIdx;
         if (it == provinceCodeToIndex_.end()) {
             shardIdx = provinceShards_.size();
             provinceShards_.emplace_back(ProvinceShard(provinceCode));
             registerProvince(provinceCode, shardIdx);
+            std::cout << "[DEBUG] Registered new province " << provinceCode << " at shard " << shardIdx << std::endl;
         } else {
             shardIdx = it->second;
+            std::cout << "[DEBUG] Province " << provinceCode << " already registered at shard " << shardIdx << std::endl;
         }
+        if (shardIdx >= provinceShards_.size()) {
+            std::cerr << "[ERROR] shardIdx " << shardIdx << " >= provinceShards_.size() " << provinceShards_.size() << std::endl;
+            return false;
+        }
+        std::cout << "[DEBUG] Assigning cards to shard " << shardIdx << std::endl;
         std::lock_guard<std::mutex> lock(provinceShards_[shardIdx].mutex);
         provinceShards_[shardIdx].cards = std::move(typeArrays);
+        std::cout << "[DEBUG] Province " << provinceCode << " loaded successfully" << std::endl;
     }
 
     sortAll();
