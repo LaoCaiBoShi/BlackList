@@ -989,7 +989,15 @@ bool BlacklistChecker::loadFromPersistFile(const std::string& filename) {
     file.close();
 
     for (auto& [provinceCode, typeArrays] : loadedData) {
-        size_t shardIdx = getShardIndex(provinceCode);
+        auto it = provinceCodeToIndex_.find(provinceCode);
+        size_t shardIdx;
+        if (it == provinceCodeToIndex_.end()) {
+            shardIdx = provinceShards_.size();
+            provinceShards_.emplace_back(ProvinceShard(provinceCode));
+            registerProvince(provinceCode, shardIdx);
+        } else {
+            shardIdx = it->second;
+        }
         std::lock_guard<std::mutex> lock(provinceShards_[shardIdx].mutex);
         provinceShards_[shardIdx].cards = std::move(typeArrays);
     }
