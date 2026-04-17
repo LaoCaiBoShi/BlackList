@@ -812,7 +812,7 @@ bool BlacklistChecker::saveToPersistFile(const std::string& filename) {
 
         size_t totalCards = 0;
         for (size_t shardIdx = 0; shardIdx < getShardCount(); ++shardIdx) {
-            uint16_t provinceCode = static_cast<uint16_t>(shardIdx);
+            uint16_t provinceCode = static_cast<uint16_t>(provinceShards_[shardIdx].provinceCode);
             std::array<uint32_t, 3> counts = {
                 static_cast<uint32_t>(provinceShards_[shardIdx].cards[0].size()),
                 static_cast<uint32_t>(provinceShards_[shardIdx].cards[1].size()),
