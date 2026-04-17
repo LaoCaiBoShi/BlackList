@@ -2,15 +2,89 @@
 
 ## 版本信息
 
-**当前版本**：v2026-04-16-14
-**最后更新**：2026-04-16
-**Git提交**：`a1d760e`
+**当前版本**：v2026-04-18-15
+**最后更新**：2026-04-18
+**Git提交**：`a5cad4c`
 
 ---
 
-## 2026-04-16
+## 2026-04-18
 
-### 版本：v2026-04-16-14
+### 版本：v2026-04-18-15
+
+**Git提交**：`a5cad4c`
+
+**改动**：修复加载持久化文件时布隆过滤器未初始化的问题
+
+---
+
+### 问题描述
+
+从缓存加载持久化文件后程序异常退出，无错误信息。
+
+### 问题原因
+
+```cpp
+// loadFromPersistFile() 中
+bloomFilter.clear();  // 清除布隆过滤器
+// 此时布隆过滤器状态：numShards_ = 0, shards_ = empty
+bloomFilter.add(fullCardId);  // 崩溃！因为分片数是0
+```
+
+### 修复内容
+
+```cpp
+bloomFilter.initialize(prefixCount, header.totalCards);  // 新增：重新初始化
+bloomFilter.clear();
+```
+
+---
+
+### 版本：v2026-04-17-14
+
+**Git提交**：`a906bf3`
+
+**改动**：provinceShards动态分片实现
+
+---
+
+### 动态分片优化
+
+将 `ShardedBloomFilter` 和 `provinceShards` 从固定分片改为动态分片。
+
+**修改内容**：
+
+| 文件 | 修改 |
+|------|------|
+| `shared_bloom_filter.h/cpp` | 动态分片，使用 vector |
+| `blacklist_checker.h` | 添加 `provinceCodeToIndex_` 映射表 |
+| `blacklist_checker.cpp` | `provinceShards` 改为动态 vector |
+
+**设计说明**：
+
+```cpp
+provinceShards_: std::vector<ProvinceShard>  // 动态数组
+provinceCodeToIndex_: unordered_map<int, size_t>  // O(1) 查找
+
+getShardIndex(44) → provinceCodeToIndex_[44] → 1 → provinceShards_[1]
+```
+
+**内存节省**：
+
+| 分片数 | 固定100分片 | 动态分片(40) | 节省 |
+|--------|-------------|--------------|------|
+| ~200 MB | ~120 MB | ~40% |
+
+**修复的Bug**：
+
+1. `saveToPersistFile/saveToFile` 中循环使用 `shardIdx` 而非省份代码
+2. `sortProvince` 中省份代码与 `shardIdx` 混淆
+3. `loadFromPersistFile` 中省份映射表为空导致越界
+4. 加载持久化文件时布隆过滤器未重新初始化
+
+---
+
+### 版本：v2026-04-16-13
 
 **Git提交**：`a1d760e`
 
