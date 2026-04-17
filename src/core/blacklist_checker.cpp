@@ -318,7 +318,7 @@ QueryResult BlacklistChecker::checkCard(const std::string& cardId) {
  */
 size_t BlacklistChecker::size() const {
     size_t count = 0;
-    for (size_t shardIdx = 0; shardIdx < MAX_PROVINCE_CODE; ++shardIdx) {
+    for (size_t shardIdx = 0; shardIdx < getShardCount(); ++shardIdx) {
         for (size_t typeIdx = 0; typeIdx < 3; ++typeIdx) {
             count += provinceShards_[shardIdx].cards[typeIdx].size();
         }
@@ -343,10 +343,11 @@ bool BlacklistChecker::saveToFile(const std::string& filename) {
         }
         file << '\n';
 
-        for (size_t shardIdx = 0; shardIdx < MAX_PROVINCE_CODE; ++shardIdx) {
+        for (size_t shardIdx = 0; shardIdx < getShardCount(); ++shardIdx) {
+            int provinceCode = provinceShards_[shardIdx].provinceCode;
             for (size_t typeIdx = 0; typeIdx < 3; ++typeIdx) {
                 for (const auto& card : provinceShards_[shardIdx].cards[typeIdx]) {
-                    std::string fullCardId = std::to_string(shardIdx);
+                    std::string fullCardId = std::to_string(provinceCode);
                     std::string yearStr = std::to_string(card.getYear());
                     if (yearStr.length() < 2) yearStr = "0" + yearStr;
                     fullCardId += yearStr;
@@ -589,10 +590,10 @@ bool BlacklistChecker::loadFromJsonFile(const std::string& filename, size_t& loa
  */
 void BlacklistChecker::reserveCapacity(size_t additionalRecords) {
     size_t totalExpectedCards = additionalRecords;
-    size_t avgCardsPerProvince = totalExpectedCards / MAX_PROVINCE_CODE;
+    size_t avgCardsPerProvince = totalExpectedCards / getShardCount();
     size_t avgCardsPerType = avgCardsPerProvince / 3;
 
-    for (size_t shardIdx = 0; shardIdx < MAX_PROVINCE_CODE; ++shardIdx) {
+    for (size_t shardIdx = 0; shardIdx < getShardCount(); ++shardIdx) {
         for (size_t typeIdx = 0; typeIdx < 3; ++typeIdx) {
             provinceShards_[shardIdx].cards[typeIdx].reserve(avgCardsPerType);
         }
@@ -683,10 +684,10 @@ void BlacklistChecker::sortAll() {
     std::vector<std::thread> threads;
     threads.reserve(threadCount);
 
-    size_t shardsPerThread = std::max<size_t>(1, MAX_PROVINCE_CODE / threadCount);
+    size_t shardsPerThread = std::max<size_t>(1, getShardCount() / threadCount);
 
-    for (size_t i = 0; i < MAX_PROVINCE_CODE; i += shardsPerThread) {
-        size_t endIdx = std::min(i + shardsPerThread, MAX_PROVINCE_CODE);
+    for (size_t i = 0; i < getShardCount(); i += shardsPerThread) {
+        size_t endIdx = std::min(i + shardsPerThread, getShardCount());
 
         threads.emplace_back([this, i, endIdx]() {
             for (size_t shardIdx = i; shardIdx < endIdx; ++shardIdx) {
@@ -711,10 +712,16 @@ void BlacklistChecker::sortProvince(int provinceCode) {
         LOG_WARN("sortProvince: invalid province code %d", provinceCode);
         return;
     }
+    auto it = provinceCodeToIndex_.find(provinceCode);
+    if (it == provinceCodeToIndex_.end()) {
+        LOG_WARN("sortProvince: province code %d not registered", provinceCode);
+        return;
+    }
+    size_t shardIdx = it->second;
 
-    LOG_DEBUG("sortProvince %d: starting", provinceCode);
+    LOG_DEBUG("sortProvince %d: starting shard %zu", provinceCode, shardIdx);
     for (size_t typeIdx = 0; typeIdx < 3; ++typeIdx) {
-        auto& cards = provinceShards_[provinceCode].cards[typeIdx];
+        auto& cards = provinceShards_[shardIdx].cards[typeIdx];
         if (cards.size() > 1) {
             std::sort(cards.begin(), cards.end());
         }
@@ -745,7 +752,7 @@ size_t BlacklistChecker::getAvailableMemory() {
 size_t BlacklistChecker::getCurrentMemoryUsage() {
     size_t size = 0;
 
-    for (size_t shardIdx = 0; shardIdx < MAX_PROVINCE_CODE; ++shardIdx) {
+    for (size_t shardIdx = 0; shardIdx < getShardCount(); ++shardIdx) {
         for (size_t typeIdx = 0; typeIdx < 3; ++typeIdx) {
             size += provinceShards_[shardIdx].cards[typeIdx].size() * sizeof(CardInfo);
         }
@@ -804,7 +811,7 @@ bool BlacklistChecker::saveToPersistFile(const std::string& filename) {
         size_t currentOffset = headerSize;
 
         size_t totalCards = 0;
-        for (size_t shardIdx = 0; shardIdx < MAX_PROVINCE_CODE; ++shardIdx) {
+        for (size_t shardIdx = 0; shardIdx < getShardCount(); ++shardIdx) {
             uint16_t provinceCode = static_cast<uint16_t>(shardIdx);
             std::array<uint32_t, 3> counts = {
                 static_cast<uint32_t>(provinceShards_[shardIdx].cards[0].size()),
@@ -989,10 +996,11 @@ bool BlacklistChecker::loadFromPersistFile(const std::string& filename) {
 
     sortAll();
 
-    for (size_t shardIdx = 0; shardIdx < MAX_PROVINCE_CODE; ++shardIdx) {
+    for (size_t shardIdx = 0; shardIdx < getShardCount(); ++shardIdx) {
+        int provinceCode = provinceShards_[shardIdx].provinceCode;
         for (size_t typeIdx = 0; typeIdx < 3; ++typeIdx) {
             for (const auto& card : provinceShards_[shardIdx].cards[typeIdx]) {
-                std::string fullCardId = std::to_string(shardIdx);
+                std::string fullCardId = std::to_string(provinceCode);
                 std::string yearStr = std::to_string(card.getYear());
                 if (yearStr.length() < 2) yearStr = "0" + yearStr;
                 fullCardId += yearStr;
